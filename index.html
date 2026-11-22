@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>PromaRacer</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,-apple-system,sans-serif;color:#fff;touch-action:none}
+  canvas{display:block;position:fixed;inset:0}
+  #menu{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.82);z-index:5;text-align:center;padding:16px;box-sizing:border-box}
+  h1{margin:0;font-size:30px;letter-spacing:2px}
+  h1 span{color:#e10600}
+  button{font-size:18px;padding:12px 24px;border-radius:12px;border:0;background:#e10600;color:#fff}
+  button.alt{background:#333}
+  #mon{font:14px/1.5 ui-monospace,Menlo,monospace;background:#111;border:1px solid #333;border-radius:10px;padding:8px 14px;min-width:260px}
+  .small{font-size:13px;color:#aaa;max-width:420px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+</style>
+</head>
+<body>
+<div id="menu">
+  <h1>PROMA<span>RACER</span></h1>
+  <div class="small">Сначала в настройках Bluetooth телефона подключи «PromaRacer Wheel» (Cardputer), потом нажми кнопку ниже. Крути руль и жми 9 / o / 0 / p, чтобы проверить связь.</div>
+  <div id="mon">Руль: нет сигнала<br>Последняя клавиша: —<br>Газ 0 · Тормоз 0 · Передача 1</div>
+  <div class="row">
+    <button id="bVR">Старт (VR очки)</button>
+    <button id="bMono" class="alt">Старт (один экран)</button>
+  </div>
+  <div class="small">Телефон горизонтально. Тап по экрану в игре — выровнять взгляд вперёд.</div>
+  <div class="small" style="border-top:1px solid #333;padding-top:8px">
+    <b>Тест с клавиатуры (компьютер):</b> Enter — старт, ← → руль, ↑ газ, ↓ тормоз, X / Z — передача выше / ниже.<br>
+    Мышью (зажать и двигать) можно осмотреться. После финиша — клик/тап, чтобы поехать заново.
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+"use strict";
+/* ================= ВВОД ================= */
+// Протокол Cardputer (BLE-клавиатура):
+//  9 = газ (зажать), o = тормоз (зажать), 0 = передача выше, p = передача ниже
+//  буквы a..m = положение руля (13 уровней, g = центр, a = полностью влево, m = полностью вправо)
+const STEER_KEYS = "abcdefghijklm";
+const input = { gas:0, brake:0, steerTarget:0, steer:0, kbLeft:0, kbRight:0, lastKey:"—", steerSeen:false, steerAt:0, keyAt:0 };
+const game = { state:"menu", vr:true, gear:1, pendingGear:0 };
+
+function onKey(e, down){
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (down && k === "Enter") {
+    // Enter: старт из меню (без VR) или новый заезд после финиша
+    if (game.state === "menu") { begin(false); e.preventDefault(); }
+    else if (game.state === "finish") { resetSim(); game.state = "countdown"; e.preventDefault(); }
+    return;
+  }
+  let used = true;
+  if (k === "9" || k === "ArrowUp") input.gas = down ? 1 : 0;
+  else if (k === "o" || k === "ArrowDown") input.brake = down ? 1 : 0;
+  else if (k === "0" || k === "x") { if (down) game.pendingGear = 1; }
+  else if (k === "p" || k === "z") { if (down) game.pendingGear = -1; }
+  else if (k === "ArrowLeft") input.kbLeft = down ? 1 : 0;
+  else if (k === "ArrowRight") input.kbRight = down ? 1 : 0;
+  else if (down && k.length === 1 && STEER_KEYS.indexOf(k) >= 0) {
+    const i = STEER_KEYS.indexOf(k);
+    input.steerTarget = (i - 6) / 6;
+    input.steerSeen = true; input.steerAt = performance.now();
+  } else used = false;
+  if (used) { input.lastKey = k; input.keyAt = performance.now(); e.preventDefault(); }
+}
+addEventListener("keydown", e => { if (!e.repeat) onKey(e, true); else if (/^Arrow|^[0-9a-z]$/i.test(e.key)) e.preventDefault(); });
+addEventListener("keyup", e => onKey(e, false));
+
+const monEl = document.getElementById("mon");
+function updateMonitor(){
+  const st = input.steerSeen ? "руль " + input.steerTarget.toFixed(2) : "руль: нет сигнала";
+  monEl.innerHTML = st + "<br>Последняя клавиша: " + input.lastKey +
+    "<br>Газ " + input.gas + " · Тормоз " + input.brake + " · Передача " + game.gear;
+}
+setInterval(() => { if (game.state === "menu") updateMonitor(); }, 100);
+
+/* ================= СЦЕНА ================= */
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const SKY = 0x9cc4ec;
+scene.background = new THREE.Color(SKY);
+scene.fog = new THREE.Fog(SKY, 120, 1100);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x4a5a3a, 0.95));
+const sun = new THREE.DirectionalLight(0xfff2d8, 0.8); sun.position.set(-60, 120, 40); scene.add(sun);
+
+function canvasTex(w, h, draw, rep){
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  draw(c.getContext("2d"), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  return t;
+}
+
+/* ---- Трасса ---- */
+const TRACK_LEN = 8000, STEP = 2, N = TRACK_LEN / STEP + 1, ROAD_W = 12, KERB_W = 1.2;
+const kappa = s => Math.min(1, s / 400) *
+  (0.0035 * Math.sin(s / 260) + 0.0025 * Math.sin(s / 110 + 1.3) + 0.0012 * Math.sin(s / 47));
+const TX = new Float32Array(N), TZ = new Float32Array(N), TH = new Float32Array(N);
+(function(){
+  let h = 0, x = 0, z = 0;
+  for (let i = 0; i < N; i++){
+    TX[i] = x; TZ[i] = z; TH[i] = h;
+    const k = kappa(i * STEP + STEP / 2), hm = h + k * STEP / 2;
+    x += Math.sin(hm) * STEP; z -= Math.cos(hm) * STEP; h += k * STEP;
+  }
+})();
+function trackAt(s){
+  s = Math.max(0, Math.min(TRACK_LEN - STEP - 0.001, s));
+  const i = Math.floor(s / STEP), f = (s - i * STEP) / STEP;
+  return { x: TX[i] + (TX[i+1] - TX[i]) * f, z: TZ[i] + (TZ[i+1] - TZ[i]) * f, h: TH[i] + (TH[i+1] - TH[i]) * f };
+}
+
+function ribbon(inner, outer, y, tex, vScale){
+  const pos = new Float32Array(N * 2 * 3), uv = new Float32Array(N * 2 * 2);
+  for (let i = 0; i < N; i++){
+    const c = Math.cos(TH[i]), sn = Math.sin(TH[i]);
+    pos.set([TX[i] + c * inner, y, TZ[i] + sn * inner], i * 6);
+    pos.set([TX[i] + c * outer, y, TZ[i] + sn * outer], i * 6 + 3);
+    uv.set([0, i * STEP / vScale, 1, i * STEP / vScale], i * 4);
+  }
+  const idx = [];
+  for (let i = 0; i < N - 1; i++){
+    const a = i * 2, b = a + 1, c2 = a + 2, d = a + 3;
+    // порядок вершин подобран так, чтобы лицевая сторона смотрела вверх
+    if (outer > inner) idx.push(a, c2, b, b, c2, d); else idx.push(a, b, c2, b, d, c2);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide }));
+  scene.add(m); return m;
+}
+const roadTex = canvasTex(128, 256, (g, w, h) => {
+  g.fillStyle = "#3b3b3f"; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 1500; i++){ g.fillStyle = "rgba(" + (i%2?255:0) + "," + (i%2?255:0) + "," + (i%2?255:0) + ",0.04)"; g.fillRect(Math.random()*w, Math.random()*h, 2, 2); }
+  g.fillStyle = "#f2f2f2"; g.fillRect(w * 0.03, 0, w * 0.025, h); g.fillRect(w * 0.945, 0, w * 0.025, h);
+  g.fillStyle = "#f0c800"; g.fillRect(w * 0.488, 0, w * 0.024, h * 0.25);
+});
+const kerbTex = canvasTex(16, 32, (g, w, h) => {
+  g.fillStyle = "#d01010"; g.fillRect(0, 0, w, h / 2);
+  g.fillStyle = "#f4f4f4"; g.fillRect(0, h / 2, w, h / 2);
+});
+ribbon(-ROAD_W / 2, ROAD_W / 2, 0.01, roadTex, 12);
+ribbon(ROAD_W / 2, ROAD_W / 2 + KERB_W, 0.02, kerbTex, 6);
+ribbon(-ROAD_W / 2 - KERB_W, -ROAD_W / 2, 0.02, kerbTex, 6);
+
+// Трава (плоскость едет за машиной, текстура остаётся на месте)
+const grassTex = canvasTex(64, 64, (g, w, h) => {
+  g.fillStyle = "#3f7a2c"; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 500; i++){ g.fillStyle = Math.random() < 0.5 ? "#356a25" : "#4b8a35"; g.fillRect(Math.random()*w, Math.random()*h, 2, 2); }
+});
+const GRASS_SIZE = 4000, GRASS_TILE = 8;
+grassTex.repeat.set(GRASS_SIZE / GRASS_TILE, GRASS_SIZE / GRASS_TILE);
+const grass = new THREE.Mesh(new THREE.PlaneGeometry(GRASS_SIZE, GRASS_SIZE), new THREE.MeshLambertMaterial({ map: grassTex }));
+grass.rotation.x = -Math.PI / 2; grass.position.y = -0.02; scene.add(grass);
+
+// Деревья
+(function(){
+  const count = 900;
+  const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.25, 0.35, 3, 6), new THREE.MeshLambertMaterial({ color: 0x5a3b22 }), count);
+  const crown = new THREE.InstancedMesh(new THREE.ConeGeometry(2.2, 7, 7), new THREE.MeshLambertMaterial({ color: 0x1f5a2a }), count);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3();
+  let seed = 12345; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+  for (let n = 0; n < count; n++){
+    const i = Math.floor(rnd() * (N - 1)), side = rnd() < 0.5 ? -1 : 1, off = side * (ROAD_W / 2 + 8 + rnd() * 70);
+    const x = TX[i] + Math.cos(TH[i]) * off, z = TZ[i] + Math.sin(TH[i]) * off, s = 0.8 + rnd() * 0.9;
+    sc.set(s, s, s);
+    m.compose(p.set(x, 1.5 * s, z), q, sc); trunk.setMatrixAt(n, m);
+    m.compose(p.set(x, 3 * s + 3.5 * s, z), q, sc); crown.setMatrixAt(n, m);
+  }
+  scene.add(trunk, crown);
+})();
+
+// Табло-ориентиры вдоль трассы + финишная арка
+(function(){
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const post = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 1.1, 0.2), mat, (N / 10) * 2);
+  const m = new THREE.Matrix4(); let n = 0;
+  for (let i = 0; i < N; i += 10){
+    for (const side of [-1, 1]){
+      const off = side * (ROAD_W / 2 + KERB_W + 1.5);
+      m.makeTranslation(TX[i] + Math.cos(TH[i]) * off, 0.55, TZ[i] + Math.sin(TH[i]) * off);
+      post.setMatrixAt(n++, m);
+    }
+  }
+  scene.add(post);
+  const i = N - 6, fin = new THREE.Group();
+  const col = new THREE.MeshLambertMaterial({ color: 0x222222 });
+  const a = new THREE.Mesh(new THREE.BoxGeometry(0.6, 7, 0.6), col); a.position.set(-ROAD_W / 2 - 1, 3.5, 0);
+  const b = a.clone(); b.position.x = ROAD_W / 2 + 1;
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(ROAD_W + 2.6, 1.4, 0.6),
+    new THREE.MeshLambertMaterial({ map: canvasTex(64, 16, (g, w, h) => { for (let x = 0; x < 8; x++) for (let y = 0; y < 2; y++){ g.fillStyle = (x + y) % 2 ? "#fff" : "#111"; g.fillRect(x * 8, y * 8, 8, 8); } }) }));
+  bar.position.set(0, 6.6, 0);
+  fin.add(a, b, bar);
+  fin.position.set(TX[i], 0, TZ[i]); fin.rotation.y = -TH[i];
+  scene.add(fin);
+})();
+
+/* ---- Кокпит ---- */
+const car = new THREE.Group(); scene.add(car);
+const dark = new THREE.MeshLambertMaterial({ color: 0x141416 });
+const mid = new THREE.MeshLambertMaterial({ color: 0x2a2a30 });
+const paint = new THREE.MeshLambertMaterial({ color: 0xc40d0d });
+function box(w, h, d, x, y, z, mat, rx, parent){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z);
+  if (rx) m.rotation.x = rx; (parent || car).add(m); return m;
+}
+box(1.7, 0.1, 2.4, 0, 0.35, -0.3, dark);              // пол
+box(1.7, 0.32, 0.55, 0, 0.78, -0.82, mid, -0.25);     // торпедо
+box(1.55, 0.14, 1.9, 0, 0.82, -1.95, paint, 0.04);    // капот
+box(0.1, 0.5, 0.1, -0.78, 1.0, -0.6, dark);           // стойки
+box(0.1, 0.5, 0.1, 0.78, 1.0, -0.6, dark);
+box(0.12, 0.7, 0.12, -0.8, 1.3, -0.45, dark, 0.45);
+box(0.12, 0.7, 0.12, 0.8, 1.3, -0.45, dark, 0.45);
+box(1.7, 0.08, 1.2, 0, 1.64, -0.2, dark);             // крыша
+box(0.1, 0.5, 1.4, -0.86, 0.6, 0.2, mid);             // двери
+box(0.1, 0.5, 1.4, 0.86, 0.6, 0.2, mid);
+box(0.8, 0.5, 0.15, 0, 0.5, 0.95, mid);               // сиденье
+// руль
+const wheelTilt = new THREE.Group(); wheelTilt.position.set(0, 0.8, -0.5); wheelTilt.rotation.x = -0.35; car.add(wheelTilt);
+const wheel = new THREE.Group(); wheelTilt.add(wheel);
+wheel.add(new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.02, 10, 36), new THREE.MeshLambertMaterial({ color: 0x0b0b0b })));
+const sp1 = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.03, 0.02), mid); wheel.add(sp1);
+const sp2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.17, 0.02), mid); sp2.position.y = -0.085; wheel.add(sp2);
+const topMark = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.04, 0.025), new THREE.MeshBasicMaterial({ color: 0xff2020 })); topMark.position.y = 0.17; wheel.add(topMark);
+// приборка
+const hudCanvas = document.createElement("canvas"); hudCanvas.width = 512; hudCanvas.height = 256;
+const hudCtx = hudCanvas.getContext("2d");
+const hudTex = new THREE.CanvasTexture(hudCanvas);
+const hudMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.23), new THREE.MeshBasicMaterial({ map: hudTex }));
+hudMesh.position.set(0, 1.03, -0.78); hudMesh.rotation.x = -0.3; car.add(hudMesh);
+
+// Голова + две камеры (стерео)
+const head = new THREE.Group(); head.position.set(0, 1.15, 0.2); car.add(head);
+const camL = new THREE.PerspectiveCamera(80, 1, 0.05, 2500), camR = new THREE.PerspectiveCamera(80, 1, 0.05, 2500);
+const IPD = 0.064;
+camL.position.x = -IPD / 2; camR.position.x = IPD / 2; head.add(camL, camR);
+
+/* ================= ГИРОСКОП ================= */
+const gyro = { enabled:false, q:new THREE.Quaternion(), yawRef:0, haveData:false, a:0, b:0, g:0 };
+const _zee = new THREE.Vector3(0, 0, 1), _eul = new THREE.Euler(), _q0 = new THREE.Quaternion(), _q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+function screenAngle(){
+  if (screen.orientation && typeof screen.orientation.angle === "number") return screen.orientation.angle;
+  return typeof window.orientation === "number" ? window.orientation : 90;
+}
+addEventListener("deviceorientation", e => {
+  if (e.alpha == null) return;
+  gyro.a = e.alpha; gyro.b = e.beta; gyro.g = e.gamma; gyro.haveData = true;
+});
+function gyroQuat(){
+  const d = Math.PI / 180;
+  _eul.set(gyro.b * d, gyro.a * d, -gyro.g * d, "YXZ");
+  const q = new THREE.Quaternion().setFromEuler(_eul);
+  q.multiply(_q1); q.multiply(_q0.setFromAxisAngle(_zee, -screenAngle() * d));
+  return q;
+}
+function recenter(){
+  if (!gyro.haveData) return;
+  const e = new THREE.Euler().setFromQuaternion(gyroQuat(), "YXZ");
+  gyro.yawRef = e.y;
+}
+async function enableGyro(){
+  try {
+    if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function"){
+      const r = await DeviceOrientationEvent.requestPermission();
+      if (r !== "granted") return false;
+    }
+    gyro.enabled = true; return true;
+  } catch (err) { return false; }
+}
+// мышь/палец как запасной вариант (без гироскопа)
+const look = { yaw:0, pitch:0, drag:false, x:0, y:0, moved:false };
+addEventListener("pointerdown", e => { look.drag = true; look.x = e.clientX; look.y = e.clientY; look.moved = false; });
+addEventListener("pointermove", e => {
+  if (!look.drag || gyro.haveData) return;
+  look.yaw -= (e.clientX - look.x) * 0.005; look.pitch = Math.max(-1.2, Math.min(1.2, look.pitch - (e.clientY - look.y) * 0.005));
+  look.x = e.clientX; look.y = e.clientY; look.moved = true;
+});
+addEventListener("pointerup", () => { look.drag = false; if (game.state !== "menu" && !look.moved) recenter(); });
+
+function applyHead(){
+  if (gyro.enabled && gyro.haveData){
+    const yawFix = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -gyro.yawRef);
+    head.quaternion.copy(yawFix).multiply(gyroQuat());
+  } else {
+    head.quaternion.setFromEuler(new THREE.Euler(look.pitch, look.yaw, 0, "YXZ"));
+  }
+}
+
+/* ================= ФИЗИКА ================= */
+const G = 9.81, MASS = 1300, WHEEL_R = 0.33, FINAL = 3.7, WB = 2.6;
+const RATIOS = [3.6, 2.5, 1.9, 1.5, 1.2, 1.0];
+const IDLE = 1000, REDLINE = 8000, T_PEAK = 600;
+const torqueAt = rpm => T_PEAK * (0.55 + 0.45 * Math.sin(Math.PI * Math.max(0, Math.min(1, (rpm - 1000) / 7000))));
+const sim = { s:0, d:0, psi:0, v:0, rpm:IDLE, time:0, offroad:false, best:0, lat:0, finished:false, countdown:3 };
+
+function resetSim(){
+  Object.assign(sim, { s:5, d:0, psi:0, v:0, rpm:IDLE, time:0, offroad:false, best:0, lat:0, finished:false, countdown:3 });
+  game.gear = 1; input.steer = 0;
+}
+
+function physics(dt){
+  // передачи
+  if (game.pendingGear){ game.gear = Math.max(1, Math.min(6, game.gear + game.pendingGear)); game.pendingGear = 0; }
+  const ratio = RATIOS[game.gear - 1] * FINAL;
+  const racing = game.state === "race";
+  const gas = racing ? input.gas : 0, brake = racing ? input.brake : 0;
+
+  // руль: клавиатура на ПК или уровни от Cardputer
+  let target = input.steerTarget;
+  if (input.kbLeft || input.kbRight) target = input.kbRight - input.kbLeft;
+  else if (!input.steerSeen) target = 0;
+  input.steer += (target - input.steer) * Math.min(1, dt * 14);
+
+  const wheelRpm = sim.v / (2 * Math.PI * WHEEL_R) * 60 * ratio;
+  const effRpm = Math.max(wheelRpm, gas > 0 ? 3500 : IDLE);
+  let F = 0;
+  if (gas > 0 && wheelRpm < REDLINE){
+    F = torqueAt(effRpm) * ratio / WHEEL_R * 0.9 * gas;
+    F = Math.min(F, 0.6 * MASS * G * (sim.offroad ? 0.55 : 1.35)); // пробуксовка
+  } else if (gas === 0 && sim.v > 0.5){
+    F = -0.08 * T_PEAK * ratio / WHEEL_R * (wheelRpm / REDLINE); // торможение двигателем
+  }
+  const drag = 0.42 * sim.v * sim.v;
+  const roll = sim.v > 0.1 ? 0.015 * MASS * G : 0;
+  const grass = sim.offroad ? 4.0 * MASS : 0;           // трава сильно тормозит
+  const mu = sim.offroad ? 0.55 : 1.35;
+  const Fbrake = Math.min(14000, mu * MASS * G) * brake;
+  let a = (F - drag - roll - Fbrake - (sim.v > 0.5 ? grass : 0)) / MASS;
+  sim.v = Math.max(0, sim.v + a * dt);
+
+  // боковая динамика
+  const dMax = 0.5 / (1 + Math.pow(sim.v / 14, 2));
+  const yawWanted = sim.v / WB * Math.tan(input.steer * dMax);
+  const latMax = mu * G;
+  let yaw = yawWanted;
+  const latWanted = Math.abs(sim.v * yawWanted);
+  if (latWanted > latMax && sim.v > 0.1){
+    yaw = Math.sign(yawWanted) * latMax / sim.v;
+    sim.v = Math.max(0, sim.v - 0.25 * (latWanted - latMax) * dt); // снос съедает скорость
+  }
+  sim.lat = sim.v * yaw / G;
+  const k = kappa(sim.s);
+  sim.psi += (yaw - k * sim.v) * dt;
+  sim.psi = Math.max(-1.4, Math.min(1.4, sim.psi));
+  sim.d += sim.v * Math.sin(sim.psi) * dt;
+  sim.s += sim.v * Math.cos(sim.psi) * dt;
+  sim.offroad = Math.abs(sim.d) > ROAD_W / 2 + KERB_W;
+  if (Math.abs(sim.d) > 60){ sim.d = 0; sim.psi = 0; sim.v = Math.min(sim.v, 8); }
+
+  // обороты (сглаженные)
+  const rpmTarget = Math.min(REDLINE, Math.max(wheelRpm, gas > 0 ? Math.max(IDLE, effRpm) : IDLE));
+  sim.rpm += (rpmTarget - sim.rpm) * Math.min(1, dt * 12);
+  sim.best = Math.max(sim.best, sim.v);
+  if (racing){
+    sim.time += dt;
+    if (sim.s >= TRACK_LEN - 20){ sim.finished = true; game.state = "finish"; }
+  }
+}
+
+/* ================= ЗВУК ================= */
+let audio = null;
+function startAudio(){
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext; const ctx = new AC();
+    const osc = ctx.createOscillator(); osc.type = "sawtooth";
+    const osc2 = ctx.createOscillator(); osc2.type = "square";
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 900;
+    const gain = ctx.createGain(); gain.gain.value = 0;
+    osc.connect(lp); osc2.connect(lp); lp.connect(gain); gain.connect(ctx.destination);
+    osc.start(); osc2.start(); audio = { ctx, osc, osc2, gain, lp };
+    if (ctx.state === "suspended") ctx.resume();
+  } catch (e) {}
+}
+function updateAudio(){
+  if (!audio) return;
+  const f = sim.rpm / 60 * 4; // V8: 4 импульса за оборот
+  audio.osc.frequency.value = f; audio.osc2.frequency.value = f * 0.5;
+  audio.lp.frequency.value = 500 + sim.rpm * 0.25;
+  audio.gain.gain.value = game.state === "menu" ? 0 : 0.05 + 0.07 * input.gas;
+}
+
+/* ================= HUD (приборка) ================= */
+let hudAt = 0;
+function drawHud(now){
+  if (now - hudAt < 50) return; hudAt = now;
+  const g = hudCtx, W = 512, H = 256;
+  g.fillStyle = "#06080c"; g.fillRect(0, 0, W, H);
+  const kmh = Math.round(sim.v * 3.6);
+  g.fillStyle = "#fff"; g.font = "bold 96px system-ui"; g.textAlign = "left"; g.fillText(String(kmh), 20, 110);
+  g.font = "26px system-ui"; g.fillStyle = "#9aa"; g.fillText("км/ч", 24, 145);
+  g.textAlign = "right"; g.fillStyle = "#ffcc00"; g.font = "bold 120px system-ui"; g.fillText(String(game.gear), W - 24, 120);
+  // тахометр
+  const frac = sim.rpm / REDLINE;
+  g.fillStyle = "#1c2128"; g.fillRect(20, 165, W - 40, 26);
+  g.fillStyle = frac > 0.88 ? "#ff2a2a" : "#2ad47a"; g.fillRect(20, 165, (W - 40) * frac, 26);
+  g.fillStyle = "#9aa"; g.font = "22px system-ui"; g.textAlign = "left"; g.fillText(Math.round(sim.rpm / 100) * 100 + " об/мин", 20, 224);
+  g.textAlign = "right";
+  let right = "";
+  if (game.state === "race") right = sim.time.toFixed(1) + " с  ·  " + Math.max(0, Math.round(TRACK_LEN - sim.s)) + " м";
+  g.fillStyle = sim.offroad ? "#ff6a3a" : "#9aa"; g.fillText(sim.offroad ? "ТРАВА!" : right, W - 20, 224);
+  g.textAlign = "center"; g.font = "bold 70px system-ui";
+  if (game.state === "countdown"){ g.fillStyle = "#fff"; g.fillText(sim.countdown > 0 ? String(Math.ceil(sim.countdown)) : "GO!", W / 2, 90); }
+  if (game.state === "finish"){
+    g.font = "bold 40px system-ui"; g.fillStyle = "#7dff9a"; g.fillText("ФИНИШ " + sim.time.toFixed(1) + " с", W / 2, 70);
+    g.font = "24px system-ui"; g.fillStyle = "#fff"; g.fillText("макс. " + Math.round(sim.best * 3.6) + " км/ч · тап — заново", W / 2, 100);
+  }
+  hudTex.needsUpdate = true;
+}
+
+/* ================= ЦИКЛ ================= */
+function resize(){ renderer.setSize(innerWidth, innerHeight); }
+addEventListener("resize", resize); resize();
+let last = performance.now();
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+
+  if (game.state === "countdown"){
+    sim.countdown -= dt;
+    if (sim.countdown <= -0.7){ game.state = "race"; }
+  }
+  physics(dt);
+  updateAudio();
+
+  // положение машины
+  const t = trackAt(sim.s), heading = t.h + sim.psi;
+  car.position.set(t.x + Math.cos(t.h) * sim.d, 0, t.z + Math.sin(t.h) * sim.d);
+  car.rotation.y = -heading;
+  const shake = (sim.offroad ? 0.012 : 0.002) * Math.min(1, sim.v / 30);
+  car.position.y = Math.sin(now * 0.05) * shake;
+  wheel.rotation.z = -input.steer * Math.PI * 1.5;   // ±270°
+  grass.position.set(car.position.x, -0.02, car.position.z);
+  grassTex.offset.set(car.position.x / GRASS_TILE, -car.position.z / GRASS_TILE);
+
+  applyHead();
+  drawHud(now);
+
+  const w = innerWidth, h = innerHeight;
+  renderer.setScissorTest(true);
+  if (game.vr){
+    const aspect = (w / 2) / h; camL.aspect = camR.aspect = aspect; camL.updateProjectionMatrix(); camR.updateProjectionMatrix();
+    renderer.setViewport(0, 0, w / 2, h); renderer.setScissor(0, 0, w / 2, h); renderer.render(scene, camL);
+    renderer.setViewport(w / 2, 0, w / 2, h); renderer.setScissor(w / 2, 0, w / 2, h); renderer.render(scene, camR);
+  } else {
+    camL.aspect = w / h; camL.updateProjectionMatrix();
+    camL.position.x = 0;
+    renderer.setViewport(0, 0, w, h); renderer.setScissor(0, 0, w, h); renderer.render(scene, camL);
+    camL.position.x = -IPD / 2;
+  }
+}
+requestAnimationFrame(frame);
+
+/* ================= СТАРТ ================= */
+async function begin(vr){
+  game.vr = vr;
+  await enableGyro();
+  startAudio();
+  try { if (navigator.wakeLock) await navigator.wakeLock.request("screen"); } catch (e) {}
+  document.getElementById("menu").style.display = "none";
+  resetSim(); recenter();
+  game.state = "countdown";
+}
+document.getElementById("bVR").onclick = () => begin(true);
+document.getElementById("bMono").onclick = () => begin(false);
+// тап после финиша — заново
+addEventListener("pointerup", () => { if (game.state === "finish"){ resetSim(); game.state = "countdown"; } });
+resetSim();
+</script>
+</body>
+</html>
