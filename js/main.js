@@ -2,7 +2,7 @@
 /* Игра: меню, гонка, круги, позиции, соперники, результаты. */
 const HSTEP = 1 / 120;
 const G = {
-  state: "menu", vr: true, carId: "f1", trackIdx: 0, laps: 3, opp: 5, auto: true,
+  state: "menu", vr: true, touch: false, touchSteer: "tilt", tiltInv: false, carId: "f1", trackIdx: 0, laps: 3, opp: 5, auto: true,
   cars: [], player: null, t: 0, accum: 0, paused: false, msgT: 0, msgText: "", autoMsgT: 0, bests: {}
 };
 const AI_COLORS = [0x1d6fe0, 0xf2a900, 0x20a050, 0xa020c0, 0xe0e0e0, 0xff6a00, 0x00b8c8];
@@ -10,7 +10,7 @@ const AI_COLORS = [0x1d6fe0, 0xf2a900, 0x20a050, 0xa020c0, 0xe0e0e0, 0xff6a00, 0
 try { Object.assign(G, JSON.parse(localStorage.getItem("promaracer.settings") || "{}")); G.bests = JSON.parse(localStorage.getItem("promaracer.bests") || "{}"); } catch (e) {}
 function saveSettings() {
   try {
-    localStorage.setItem("promaracer.settings", JSON.stringify({ carId: G.carId, trackIdx: G.trackIdx, laps: G.laps, opp: G.opp, auto: G.auto }));
+    localStorage.setItem("promaracer.settings", JSON.stringify({ carId: G.carId, trackIdx: G.trackIdx, laps: G.laps, opp: G.opp, auto: G.auto, touchSteer: G.touchSteer, tiltInv: G.tiltInv }));
     localStorage.setItem("promaracer.bests", JSON.stringify(G.bests));
   } catch (e) {}
 }
@@ -33,6 +33,8 @@ function buildMenu() {
   group("lapBtns", [1, 3, 5, 10].map(n => ({ label: n + " кр.", value: n })), () => G.laps, v => G.laps = v);
   group("oppBtns", [0, 3, 5, 7].map(n => ({ label: n === 0 ? "Один" : n + " соп.", value: n })), () => G.opp, v => G.opp = v);
   group("gearBtns", [{ label: "Авто", value: true }, { label: "Ручная", value: false }], () => G.auto, v => G.auto = v);
+  group("steerBtns", [{ label: "Руль: наклон телефона", value: "tilt" }, { label: "Руль: кнопки ◀ ▶", value: "btn" }], () => G.touchSteer, v => G.touchSteer = v);
+  group("invBtns", [{ label: "Наклон обычный", value: false }, { label: "Инверсия руля", value: true }], () => G.tiltInv, v => G.tiltInv = v);
   const D = CARS[G.carId];
   $("carInfo").textContent = D.hp + " л.с. · " + D.mass + " кг · " + D.ratios.length + " передач · до " + D.redline + " об/мин · " +
     (D.ClA > 1.5 ? "много прижимной силы" : "мало прижимной силы") + (D.abs ? " · ABS" : " · без ABS");
@@ -99,7 +101,7 @@ function simStep(h) {
     const gasWant = input.gasSm > 0.1;
     P.rpm += ((gasWant ? P.def.idle + (P.def.redline - P.def.idle) * 0.4 : P.def.idle) - P.rpm) * Math.min(1, h * 6);
     for (const c of cs) if (c.isAI) c.rpm += ((c.def.idle + (c.def.redline - c.def.idle) * 0.4) - c.rpm) * Math.min(1, h * 6);
-    if (G.t >= 0) { G.state = "race"; G.t = 0; G.msgT = 1.2; G.msgText = "GO!"; }
+    if (G.t >= 0) { G.state = "race"; G.t = 0; G.msgT = 1.2; G.msgText = "GO!"; if (G.touch) calibrateTilt(); }
     return;
   }
   for (const c of cs) {
@@ -200,32 +202,44 @@ function frame(now) {
   const throttle = G.state === "grid" ? input.gasSm : (G.state === "finish" ? 0 : input.gasSm);
   updateAudio(P, !G.paused, throttle);
   renderFrame(P, G.cars, S, dt, G.vr);
+  if (G.touch) {
+    $("tHud").textContent = Math.round(S.kmh) + " км/ч · " + S.gear + " · P" + S.pos + "/" + S.total + " · круг " + Math.min(S.lap, S.laps) + "/" + S.laps +
+      (S.surface ? " · ТРАВА" : "") + (G.touchSteer === "tilt" && !tilt.have ? " · нет данных наклона" : "");
+  }
 }
 
 /* ---------- Запуск ---------- */
-async function begin(vr) {
-  G.vr = vr;
+async function begin(mode) {
+  G.vr = mode === "vr"; G.touch = mode === "touch";
+  input.touchMode = G.touch; input.touchSteer = G.touchSteer; tilt.invert = G.tiltInv;
   await enableGyro();
+  if (G.touch) gyro.enabled = false;                    // телефон — руль, обзор головой не нужен
+  $("touch").style.display = G.touch ? "block" : "none";
+  $("tL").style.display = $("tR").style.display = G.touch && G.touchSteer === "btn" ? "block" : "none";
+  $("tCal").style.display = G.touch && G.touchSteer === "tilt" ? "block" : "none";
   startAudio();
   try { if (navigator.wakeLock) await navigator.wakeLock.request("screen"); } catch (e) {}
   $("menu").style.display = "none";
   initRender(); resizeRender();
   startRace();
   recenter();
+  if (G.touch) setTimeout(calibrateTilt, 400);
 }
 function toMenu() {
-  $("results").style.display = "none"; $("menu").style.display = "flex";
+  $("results").style.display = "none"; $("menu").style.display = "flex"; $("touch").style.display = "none";
+  input.touchMode = false; input.gas = input.brake = input.kbLeft = input.kbRight = 0;
   G.state = "menu"; updateAudio(G.player || { def: CARS.gtr, rpm: 1000, vx: 0, alphaF: 0, alphaR: 0, shiftT: 0, rpmWheel: 0 }, false, 0);
   buildMenu();
 }
 input.onEnter = () => {
-  if (G.state === "menu") begin(false);
+  if (G.state === "menu") begin("mono");
   else if (G.state === "finish") toMenu();
 };
-$("bVR").onclick = () => begin(true);
-$("bMono").onclick = () => begin(false);
+$("bVR").onclick = () => begin("vr");
+$("bMono").onclick = () => begin("mono");
+$("bTouch").onclick = () => begin("touch");
 $("bMenu").onclick = toMenu;
 $("bAgain").onclick = () => { $("results").style.display = "none"; startRace(); };
-addEventListener("pointerup", () => { if (G.state !== "menu" && !look.moved) recenter(); });
+addEventListener("pointerup", () => { if (G.state !== "menu" && !G.touch && !look.moved) recenter(); });
 buildMenu();
 requestAnimationFrame(frame);

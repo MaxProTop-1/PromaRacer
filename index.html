@@ -16,6 +16,19 @@
   button.alt{background:#333}
   button.opt{background:#22262c;font-size:14px;padding:8px 12px;border:1px solid #333}
   button.opt.on{background:#e10600;border-color:#e10600}
+  #touch{position:fixed;inset:0;z-index:4;display:none;pointer-events:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+  #touch button{pointer-events:auto;touch-action:none;position:absolute;border:2px solid rgba(255,255,255,.55);background:rgba(20,20,24,.45);color:#fff;font-weight:700;border-radius:18px;padding:0;-webkit-tap-highlight-color:transparent}
+  #touch button.down{background:rgba(225,6,0,.65)}
+  #tGas{right:max(14px,env(safe-area-inset-right));bottom:14px;width:21vw;height:52vh;font-size:20px}
+  #tBrake{right:calc(max(14px,env(safe-area-inset-right)) + 23vw);bottom:14px;width:15vw;height:34vh;font-size:15px}
+  #tL{left:max(14px,env(safe-area-inset-left));bottom:14px;width:19vw;height:40vh;font-size:34px}
+  #tR{left:calc(max(14px,env(safe-area-inset-left)) + 21vw);bottom:14px;width:19vw;height:40vh;font-size:34px}
+  #tUp,#tDown{width:13vw;height:17vh;font-size:22px;right:max(14px,env(safe-area-inset-right))}
+  #tUp{bottom:calc(52vh + 28px)}
+  #tDown{bottom:calc(52vh + 28px + 19vh)}
+  #tTop button{top:8px;width:46px;height:42px;font-size:20px;border-radius:12px}
+  #tPause{left:calc(50% - 125px)}#tView{left:calc(50% - 73px)}#tAuto{left:calc(50% - 21px);font-size:13px!important}#tReset{left:calc(50% + 31px)}#tCal{left:calc(50% + 83px)}
+  #tHud{position:absolute;top:56px;left:0;right:0;text-align:center;font:700 15px ui-monospace,Menlo,monospace;text-shadow:0 0 4px #000,0 0 4px #000}
   #mon{font:13px/1.45 ui-monospace,Menlo,monospace;background:#111;border:1px solid #333;border-radius:10px;padding:6px 12px;min-width:240px}
   .small{font-size:12px;color:#aaa;max-width:460px}
   .row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
@@ -32,9 +45,11 @@
   <h3>Трасса</h3><div class="row" id="trackBtns"></div>
   <h3>Круги / соперники / коробка</h3>
   <div class="row" id="lapBtns"></div><div class="row" id="oppBtns"></div><div class="row" id="gearBtns"></div>
+  <h3>Телефон без клавиатуры</h3><div class="row" id="steerBtns"></div><div class="row" id="invBtns"></div>
   <div id="mon">Руль: нет сигнала<br>Последняя клавиша: —<br>Газ 0 · Тормоз 0</div>
   <div class="row">
     <button id="bVR">Старт (VR очки)</button>
+    <button id="bTouch">Старт: телефон, касанием</button>
     <button id="bMono" class="alt">Старт (один экран)</button>
   </div>
   <div class="small">Сначала подключи «PromaRacer Wheel» в настройках Bluetooth телефона. Телефон горизонтально; тап по экрану в игре — выровнять взгляд вперёд.</div>
@@ -42,6 +57,13 @@
     <b>Клавиатура:</b> Enter старт · W газ · S тормоз · A / D руль · E / Q передача выше / ниже · N авто/ручная · R вернуть на трассу · V вид сзади · Esc пауза.<br>
     <b>Cardputer:</b> 9 газ · o тормоз · 0 / p передачи · руль наклоном.
   </div>
+</div>
+<div id="touch">
+  <div id="tHud"></div>
+  <button id="tBrake">ТОРМОЗ</button><button id="tGas">ГАЗ</button>
+  <button id="tL">◀</button><button id="tR">▶</button>
+  <button id="tUp">▲</button><button id="tDown">▼</button>
+  <div id="tTop"><button id="tPause">⏸</button><button id="tView">👁</button><button id="tAuto">A/M</button><button id="tReset">↺</button><button id="tCal">⌖</button></div>
 </div>
 <div id="results">
   <h1>РЕЗУЛЬТАТ</h1>
