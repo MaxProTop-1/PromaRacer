@@ -1,7 +1,9 @@
 "use strict";
 /* Ввод. Cardputer (BLE-клавиатура): 9 = газ, o = тормоз, 0 = передача выше, p = передача ниже,
-   буквы a..m = положение руля (g = центр). Для проверки на компьютере: стрелки, X / Z, R, V, N, Esc. */
-const STEER_KEYS = "abcdefghijklm";
+   13 букв "bcfghijklmtuy" = положение руля (b = до упора влево, i = центр, y = до упора вправо);
+   эти буквы не пересекаются с клавишами компьютера.
+   Компьютер: W газ, S тормоз, A / D руль, E / Q передачи, R, V, N, Esc, Enter (стрелки и X / Z тоже работают). */
+const STEER_KEYS = "bcfghijklmtuy";
 const input = {
   gas: 0, brake: 0, steerTarget: 0, steer: 0, kbLeft: 0, kbRight: 0,
   lastKey: "—", steerSeen: false, pendingGear: 0, pendingReset: false, pendingView: false, pendingAuto: false,
@@ -13,12 +15,12 @@ function onKey(e, down) {
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (down && k === "Enter") { if (input.onEnter) { input.onEnter(); e.preventDefault(); } return; }
   let used = true;
-  if (k === "9" || k === "ArrowUp") input.gas = down ? 1 : 0;
-  else if (k === "o" || k === "ArrowDown") input.brake = down ? 1 : 0;
-  else if (k === "0" || k === "x") { if (down) input.pendingGear = 1; }
-  else if (k === "p" || k === "z") { if (down) input.pendingGear = -1; }
-  else if (k === "ArrowLeft") input.kbLeft = down ? 1 : 0;
-  else if (k === "ArrowRight") input.kbRight = down ? 1 : 0;
+  if (k === "9" || k === "w" || k === "ArrowUp") input.gas = down ? 1 : 0;
+  else if (k === "o" || k === "s" || k === "ArrowDown") input.brake = down ? 1 : 0;
+  else if (k === "0" || k === "e" || k === "x") { if (down) input.pendingGear = 1; }
+  else if (k === "p" || k === "q" || k === "z") { if (down) input.pendingGear = -1; }
+  else if (k === "a" || k === "ArrowLeft") input.kbLeft = down ? 1 : 0;
+  else if (k === "d" || k === "ArrowRight") input.kbRight = down ? 1 : 0;
   else if (k === "r") { if (down) input.pendingReset = true; }
   else if (k === "v") { if (down) input.pendingView = true; }
   else if (k === "n") { if (down) input.pendingAuto = true; }
