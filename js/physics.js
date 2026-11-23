@@ -76,8 +76,11 @@ function physStep(c, inp, dt) {
   let deltaWanted;
   if (inp.delta !== undefined) deltaWanted = inp.delta;
   else {
-    const assist = 1 / (1 + Math.pow(vxp / (D.assistV || 38), 2));
-    deltaWanted = inp.steer * D.steerLock * (0.25 + 0.75 * assist);
+    // руль, зависящий от скорости: полный поворот = ~110% предельного бокового ускорения
+    // (с прижимной силой предел растёт со скоростью), на малой скорости — полный угол колёс
+    const aMax = D.mu * muSurf * (GRAV + down / m);
+    const dMax = Math.min(D.steerLock, 1.1 * L * aMax / Math.max(vxp * vxp, 16));
+    deltaWanted = inp.steer * dMax;
   }
   const maxRate = 2.2;                          // рад/с
   const dd = Math.max(-maxRate * dt, Math.min(maxRate * dt, deltaWanted - c.delta));
