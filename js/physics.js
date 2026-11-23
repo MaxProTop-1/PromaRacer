@@ -58,7 +58,7 @@ function physStep(c, inp, dt) {
 
   // --- аэродинамика ---
   const q = 0.5 * RHO * vxp * vxp;
-  const drag = q * D.CdA * (c.drs ? 0.72 : 1), down = q * D.ClA * (c.drs ? 0.8 : 1);
+  const drag = q * D.CdA * (c.drs ? 0.72 : 1) * (1 - (c.draft || 0)), down = q * D.ClA * (c.drs ? 0.8 : 1) * (1 - 0.4 * (c.draft || 0));
 
   // --- нагрузки на оси ---
   const trans = m * c.ax * D.hcg / L;      // ускорение переносит вес назад, торможение вперёд
