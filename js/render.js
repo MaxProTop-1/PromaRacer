@@ -266,7 +266,7 @@ function drawHud(S, now) {
   g.textAlign = "left"; g.fillStyle = "#fff"; g.font = "bold 92px system-ui"; g.fillText(String(Math.round(S.kmh)), 16, 98);
   g.font = "24px system-ui"; g.fillStyle = "#9aa"; g.fillText("км/ч", 20, 130);
   g.textAlign = "right"; g.fillStyle = S.shifting ? "#888" : "#ffcc00"; g.font = "bold 118px system-ui"; g.fillText(S.gear, W - 20, 110);
-  g.font = "20px system-ui"; g.fillStyle = "#9aa"; g.fillText(S.auto ? "AUTO" : "MANUAL", W - 24, 136);
+  g.font = "20px system-ui"; g.fillStyle = "#9aa"; g.fillText((S.auto ? "AUTO" : "MANUAL") + (S.assist ? " · ПОМ" : ""), W - 24, 136);
   // тахометр с шифт-лампами
   const frac = Math.min(1, S.rpm / S.redline);
   g.fillStyle = "#1c2128"; g.fillRect(16, 148, W - 32, 22);

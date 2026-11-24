@@ -69,17 +69,17 @@ function physStep(c, inp, dt) {
   // --- шины ---
   c.tireF = tireFactor(c.tempF, D.tireOpt, c.wearF);
   c.tireR = tireFactor(c.tempR, D.tireOpt, c.wearR);
-  const muF = D.mu * c.tireF * muSurf, muR = D.mu * c.tireR * muSurf;
+  const muF = D.mu * c.tireF * muSurf, muR = D.mu * c.tireR * muSurf * 1.05;
   c.gripF = muF; c.gripR = muR;
 
-  // --- руль: скорость поворота ограничена, на скорости угол уменьшается помощью ---
+  // --- руль ---
+  const aMaxCar = D.mu * muSurf * (GRAV + down / m);
   let deltaWanted;
   if (inp.delta !== undefined) deltaWanted = inp.delta;
   else {
     // руль, зависящий от скорости: полный поворот = ~110% предельного бокового ускорения
     // (с прижимной силой предел растёт со скоростью), на малой скорости — полный угол колёс
-    const aMax = D.mu * muSurf * (GRAV + down / m);
-    const dMax = Math.min(D.steerLock, 1.1 * L * aMax / Math.max(vxp * vxp, 16));
+    const dMax = Math.min(D.steerLock, 1.1 * L * aMaxCar / Math.max(vxp * vxp, 16));
     deltaWanted = inp.steer * dMax;
   }
   const maxRate = 2.2;                          // рад/с
@@ -87,18 +87,29 @@ function physStep(c, inp, dt) {
   c.delta += dd;
   const delta = c.delta, cd = Math.cos(delta), sd = Math.sin(delta);
 
+  // --- помощники водителя (включаются для игрока): антипробуксовка, ABS, снижение тормоза в повороте ---
+  let gasEff = inp.gas, brakeEff = inp.brake;
+  if (c.assist) {
+    const slide = Math.abs(c.alphaR), slideF = Math.abs(c.alphaF);
+    gasEff *= 1 - Math.min(1, Math.max(0, (slide - 0.04) / 0.08)) * 0.9;
+    gasEff *= 1 - Math.min(1, Math.max(0, (slideF - 0.10) / 0.10)) * 0.5;
+    // торможение в повороте: вес уходит вперёд и разгружает заднюю ось, поэтому тормоз ослабляем тем сильнее, чем больше боковая нагрузка
+    brakeEff *= 1 - 0.8 * Math.min(0.98, Math.abs(c.ay) / Math.max(4, aMaxCar));
+    brakeEff *= 1 - Math.min(1, Math.max(0, (slide - 0.05) / 0.07)) * 0.9;     // задняя ось скользит — тормоз отпускаем
+  }
+
   // --- трансмиссия ---
   c.shiftT = Math.max(0, c.shiftT - dt);
   if (c.auto) autoShift(c, dt);
   const ratio = D.ratios[c.gear - 1] * D.final;
   const wr = wheelRpm(c, c.gear);
   const launch = D.idle + (D.redline - D.idle) * 0.38;
-  let rpmEng = Math.max(wr, inp.gas > 0.05 ? launch : D.idle);
+  let rpmEng = Math.max(wr, gasEff > 0.05 ? launch : D.idle);
   rpmEng = Math.min(rpmEng, D.redline * 1.02);
   let Fdrive = 0;
   const limiter = wr >= D.redline;
-  if (inp.gas > 0.02) {
-    if (c.shiftT <= 0 && !limiter) Fdrive = D.torque(rpmEng) * ratio * 0.92 / D.wheelR * inp.gas;
+  if (gasEff > 0.02) {
+    if (c.shiftT <= 0 && !limiter) Fdrive = D.torque(rpmEng) * ratio * 0.92 / D.wheelR * gasEff;
   } else if (vxp > 0.5) {
     Fdrive = -D.Tpeak * 0.10 * (wr / D.redline) * ratio / D.wheelR;       // торможение двигателем
   }
@@ -107,18 +118,23 @@ function physStep(c, inp, dt) {
   // --- продольные силы по осям ---
   const driveF = D.drive === "awd" ? 0.4 : 0, driveR = 1 - driveF;
   const bf = 0.62;                                                       // баланс тормозов
-  let FxF = Fdrive * driveF - D.brakeMax * inp.brake * bf;
-  let FxR = Fdrive * driveR - D.brakeMax * inp.brake * (1 - bf);
+  let FxF = Fdrive * driveF - D.brakeMax * brakeEff * bf;
+  let FxR = Fdrive * driveR - D.brakeMax * brakeEff * (1 - bf);
   const limF = muF * FzF, limR = muR * FzR;
+  const absOn = D.abs || c.assist;
   c.lockF = c.lockR = c.spinR = false;
   let latF = 1, latR = 1;
-  if (Math.abs(FxF) > limF) {
-    if (FxF < 0 && !D.abs) { c.lockF = true; latF = 0.35; FxF = -0.85 * limF; }
-    else FxF = Math.sign(FxF) * limF * (D.abs ? 0.97 : 1);
+  // "круг трения": пока машина занята поворотом (u = доля бокового предела), на тягу и торможение остаётся
+  // sqrt(1-u^2) сцепления; без поворота ABS/антипробуксовка работают на 95-97% предела
+  const u = Math.min(0.98, Math.abs(c.ay) / Math.max(4, aMaxCar)), circ = Math.sqrt(1 - u * u);
+  const capD = Math.max(0.35, 0.95 * circ), capB = absOn ? Math.max(0.35, 0.97 * circ) : 1.0;
+  if (Math.abs(FxF) > limF * (FxF < 0 ? capB : capD)) {
+    if (FxF < 0 && !absOn) { c.lockF = true; latF = 0.5; FxF = -0.85 * limF; }
+    else FxF = Math.sign(FxF) * limF * (FxF < 0 ? capB : capD);
   }
-  if (Math.abs(FxR) > limR) {
-    if (FxR < 0 && !D.abs) { c.lockR = true; latR = 0.5; FxR = -0.85 * limR; }
-    else { if (FxR > 0) c.spinR = true; FxR = Math.sign(FxR) * limR * (D.abs && FxR < 0 ? 0.97 : 1); }
+  if (Math.abs(FxR) > limR * (FxR < 0 ? capB : capD)) {
+    if (FxR < 0 && !absOn) { c.lockR = true; latR = 0.6; FxR = -0.85 * limR; }
+    else { if (FxR > 0) c.spinR = true; FxR = Math.sign(FxR) * limR * (FxR < 0 ? capB : capD); }
   }
 
   // --- боковые силы (формула типа "магической" + круг трения) ---
@@ -135,13 +151,17 @@ function physStep(c, inp, dt) {
   const roll = vxp > 0.1 ? (0.016 + (c.onGrass ? 0.18 : 0)) * W : 0;
   const Ftot = FxR + FxF * cd - FyF * sd - drag - roll;
   const Fytot = FyR + FyF * cd + FxF * sd;
-  const Mz = lf * (FyF * cd + FxF * sd) - lr * FyR;
+  let Mz = lf * (FyF * cd + FxF * sd) - lr * FyR;
+  if (c.assist && vxp > 8 && Math.abs(c.alphaR) > 0.05) {      // ESC: тянем рыскание к тому, что хочет водитель
+    const rMax = aMaxCar / vxp, rT = Math.max(-rMax, Math.min(rMax, vxp * Math.tan(delta) / L));
+    Mz += D.Iz * 14 * Math.max(-1, Math.min(1, rT - c.r));
+  }
 
   c.ax = Ftot / m;
   c.ay = Fytot / m;
   c.vx += (c.ax + c.vy * c.r) * dt;
   c.vy += (c.ay - c.vx * c.r) * dt;
-  c.r += (Mz / D.Iz - c.r * 0.15) * dt;
+  c.r += (Mz / D.Iz - c.r * 0.4) * dt;
   if (c.vx < 0) { c.vx = 0; }
 
   // на малой скорости — кинематическая модель (иначе скольжение расходится)

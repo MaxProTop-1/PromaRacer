@@ -2,12 +2,12 @@
 /* Ввод. Cardputer (BLE-клавиатура): 9 = газ, o = тормоз, 0 = передача выше, p = передача ниже,
    13 букв "bcfghijklmtuy" = положение руля (b = до упора влево, i = центр, y = до упора вправо);
    эти буквы не пересекаются с клавишами компьютера.
-   Компьютер: W газ, S тормоз, A / D руль, E / Q передачи, R, V, N, Esc, Enter (стрелки и X / Z тоже работают). */
+   Компьютер: W газ, S тормоз, A / D руль, E / Q передачи, R, V, N, Пробел (помощники), Esc, Enter (стрелки и X / Z тоже работают). */
 const STEER_KEYS = "bcfghijklmtuy";
 const input = {
   gas: 0, brake: 0, steerTarget: 0, steer: 0, kbLeft: 0, kbRight: 0,
   lastKey: "—", steerSeen: false, pendingGear: 0, pendingReset: false, pendingView: false, pendingAuto: false,
-  pendingPause: false, onEnter: null
+  pendingPause: false, pendingAssist: false, onEnter: null
 };
 
 function onKey(e, down) {
@@ -25,6 +25,7 @@ function onKey(e, down) {
   else if (k === "v") { if (down) input.pendingView = true; }
   else if (k === "n") { if (down) input.pendingAuto = true; }
   else if (k === "Escape") { if (down) input.pendingPause = true; }
+  else if (k === " ") { if (down) input.pendingAssist = true; }
   else if (down && k.length === 1 && STEER_KEYS.indexOf(k) >= 0) {
     input.steerTarget = (STEER_KEYS.indexOf(k) - 6) / 6;
     input.steerSeen = true;
@@ -81,7 +82,7 @@ async function enableGyro() {
 const look = { yaw: 0, pitch: 0, drag: false, x: 0, y: 0, moved: false };
 addEventListener("pointerdown", e => { if (input.touchMode) return; look.drag = true; look.x = e.clientX; look.y = e.clientY; look.moved = false; });
 addEventListener("pointermove", e => {
-  if (input.touchMode || !look.drag || gyro.haveData) return;
+  if (input.touchMode || !look.drag || (gyro.enabled && gyro.haveData)) return;
   look.yaw -= (e.clientX - look.x) * 0.005;
   look.pitch = Math.max(-1.2, Math.min(1.2, look.pitch - (e.clientY - look.y) * 0.005));
   look.x = e.clientX; look.y = e.clientY; look.moved = true;
@@ -130,5 +131,6 @@ function setupTouchUI() {
   holdButton("tAuto", () => { input.pendingAuto = true; });
   holdButton("tReset", () => { input.pendingReset = true; });
   holdButton("tCal", () => { calibrateTilt(); });
+  holdButton("tAssist", () => { input.pendingAssist = true; });
 }
 setupTouchUI();

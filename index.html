@@ -27,7 +27,7 @@
   #tUp{bottom:calc(52vh + 28px)}
   #tDown{bottom:calc(52vh + 28px + 19vh)}
   #tTop button{top:8px;width:46px;height:42px;font-size:20px;border-radius:12px}
-  #tPause{left:calc(50% - 125px)}#tView{left:calc(50% - 73px)}#tAuto{left:calc(50% - 21px);font-size:13px!important}#tReset{left:calc(50% + 31px)}#tCal{left:calc(50% + 83px)}
+  #tPause{left:calc(50% - 125px)}#tView{left:calc(50% - 73px)}#tAuto{left:calc(50% - 21px);font-size:13px!important}#tReset{left:calc(50% + 31px)}#tCal{left:calc(50% + 83px)}#tAssist{left:calc(50% + 135px);font-size:13px!important}
   #tHud{position:absolute;top:56px;left:0;right:0;text-align:center;font:700 15px ui-monospace,Menlo,monospace;text-shadow:0 0 4px #000,0 0 4px #000}
   #mon{font:13px/1.45 ui-monospace,Menlo,monospace;background:#111;border:1px solid #333;border-radius:10px;padding:6px 12px;min-width:240px}
   .small{font-size:12px;color:#aaa;max-width:460px}
@@ -45,6 +45,7 @@
   <h3>Трасса</h3><div class="row" id="trackBtns"></div>
   <h3>Круги / соперники / коробка</h3>
   <div class="row" id="lapBtns"></div><div class="row" id="oppBtns"></div><div class="row" id="gearBtns"></div>
+  <h3>Помощь водителю и обзор</h3><div class="row" id="assistBtns"></div><div class="row" id="gyroBtns"></div>
   <h3>Телефон без клавиатуры</h3><div class="row" id="steerBtns"></div><div class="row" id="invBtns"></div>
   <div id="mon">Руль: нет сигнала<br>Последняя клавиша: —<br>Газ 0 · Тормоз 0</div>
   <div class="row">
@@ -54,7 +55,7 @@
   </div>
   <div class="small">Сначала подключи «PromaRacer Wheel» в настройках Bluetooth телефона. Телефон горизонтально; тап по экрану в игре — выровнять взгляд вперёд.</div>
   <div class="small" style="border-top:1px solid #333;padding-top:6px">
-    <b>Клавиатура:</b> Enter старт · W газ · S тормоз · A / D руль · E / Q передача выше / ниже · N авто/ручная · R вернуть на трассу · V вид сзади · Esc пауза.<br>
+    <b>Клавиатура:</b> Enter старт · W газ · S тормоз · A / D руль · E / Q передача выше / ниже · N авто/ручная · Пробел помощники · R вернуть на трассу · V вид сзади · Esc пауза.<br>
     <b>Cardputer:</b> 9 газ · o тормоз · 0 / p передачи · руль наклоном.
   </div>
 </div>
@@ -63,7 +64,7 @@
   <button id="tBrake">ТОРМОЗ</button><button id="tGas">ГАЗ</button>
   <button id="tL">◀</button><button id="tR">▶</button>
   <button id="tUp">▲</button><button id="tDown">▼</button>
-  <div id="tTop"><button id="tPause">⏸</button><button id="tView">👁</button><button id="tAuto">A/M</button><button id="tReset">↺</button><button id="tCal">⌖</button></div>
+  <div id="tTop"><button id="tPause">⏸</button><button id="tView">👁</button><button id="tAuto">A/M</button><button id="tReset">↺</button><button id="tCal">⌖</button><button id="tAssist">ABS</button></div>
 </div>
 <div id="results">
   <h1>РЕЗУЛЬТАТ</h1>
