@@ -64,8 +64,33 @@ const CAR_ORDER = ["gtr", "gt3", "f4", "f3", "f2", "f1"];
     let best = 0;
     for (let r = D.idle; r <= D.redline; r += 50) best = Math.max(best, shape(r / D.powerRpm) * r * Math.PI / 30);
     D.Tpeak = D.hp * 745.7 / best;
+    D.shape = shape;
     D.torque = rpm => D.Tpeak * shape(Math.max(rpm, D.idle) / D.powerRpm);
     D.Iz = D.mass * D.wb * D.wb * 0.22;          // момент инерции рыскания
     D.gearMax = D.ratios.length;
   }
 })();
+
+/* ---------- Гараж: цены и апгрейды ---------- */
+const CAR_PRICE = { gtr: 0, gt3: 12000, f4: 20000, f3: 40000, f2: 80000, f1: 150000 };
+const UPG = {
+  e: { name: "Двигатель", hint: "+мощность", step: 0.04 },
+  t: { name: "Шины", hint: "+сцепление", step: 0.03 },
+  a: { name: "Аэродинамика", hint: "+прижим", step: 0.06 }
+};
+const UPG_MAX = 5;
+const upgCost = (id, lvl) => Math.round(CAR_PRICE[id] * 0.06 + 1500) * (lvl + 1);
+
+/* Копия класса машины с учётом апгрейдов garage[id] = {e,t,a}. Оригинал не меняется. */
+function upgradedDef(id, up) {
+  const B = CARS[id]; up = up || {};
+  const d = Object.assign({}, B);
+  d.hp = B.hp * (1 + UPG.e.step * (up.e || 0));
+  d.mu = B.mu * (1 + UPG.t.step * (up.t || 0));
+  d.ClA = B.ClA * (1 + UPG.a.step * (up.a || 0));
+  let best = 0;
+  for (let r = d.idle; r <= d.redline; r += 50) best = Math.max(best, B.shape(r / d.powerRpm) * r * Math.PI / 30);
+  d.Tpeak = d.hp * 745.7 / best;
+  d.torque = rpm => d.Tpeak * B.shape(Math.max(rpm, d.idle) / d.powerRpm);
+  return d;
+}

@@ -3,19 +3,126 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b0c10">
 <title>PromaRacer</title>
 <style>
-  html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,-apple-system,sans-serif;color:#fff;touch-action:none}
+  :root{--red:#e10600;--red2:#ff3b30;--yel:#ffcc00;--bg:#0b0c10;--card:rgba(16,18,24,.82);--line:rgba(255,255,255,.12);--dim:#9aa3b2}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#fff;touch-action:none}
   canvas{display:block;position:fixed;inset:0}
-  #menu,#results{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(0,0,0,.86);z-index:5;text-align:center;padding:12px;box-sizing:border-box;overflow:auto}
-  #results{display:none}
-  h1{margin:0;font-size:28px;letter-spacing:2px}
-  h1 span{color:#e10600}
-  h3{margin:6px 0 0;font-size:13px;color:#9aa;font-weight:600;text-transform:uppercase;letter-spacing:1px}
-  button{font-size:16px;padding:10px 18px;border-radius:10px;border:0;background:#e10600;color:#fff}
-  button.alt{background:#333}
-  button.opt{background:#22262c;font-size:14px;padding:8px 12px;border:1px solid #333}
-  button.opt.on{background:#e10600;border-color:#e10600}
+  #bg3d{z-index:1;width:100%;height:100%}
+  button{font:inherit;color:#fff;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  input{font:inherit}
+
+  /* ---------- общий каркас интерфейса ---------- */
+  #ui{position:fixed;inset:0;z-index:5;pointer-events:none;
+      padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+  #ui.off{display:none}
+  .scr{position:absolute;inset:0;display:none;flex-direction:column;pointer-events:none}
+  .scr.on{display:flex}
+  .scr>*{pointer-events:auto}
+  .scr.solid{background:radial-gradient(ellipse at 50% 30%,#1a1d26 0,#0b0c10 70%);pointer-events:auto}
+  .scr.dim{background:linear-gradient(180deg,rgba(7,8,11,.62),rgba(7,8,11,.84));pointer-events:auto}
+  #garage{background:linear-gradient(90deg,rgba(7,8,11,.88) 0,rgba(7,8,11,.55) 55%,transparent 100%);pointer-events:auto}
+  /* карбон и клетчатый флаг */
+  .carbon{background-color:#0d0e12;background-image:linear-gradient(45deg,rgba(255,255,255,.035) 25%,transparent 25%,transparent 75%,rgba(255,255,255,.035) 75%),linear-gradient(45deg,rgba(255,255,255,.035) 25%,transparent 25%,transparent 75%,rgba(255,255,255,.035) 75%);background-size:8px 8px;background-position:0 0,4px 4px}
+  .checker{height:10px;flex:none;background:repeating-conic-gradient(#fff 0 25%,#111 0 50%) 0 0/10px 10px;opacity:.9}
+  .speed{position:absolute;inset:0;pointer-events:none;overflow:hidden;opacity:.18}
+  .speed i{position:absolute;height:2px;width:30vw;background:linear-gradient(90deg,transparent,#fff);transform:skewX(-30deg);animation:zoom 1.4s linear infinite}
+  @keyframes zoom{from{transform:translateX(-40vw) skewX(-30deg)}to{transform:translateX(140vw) skewX(-30deg)}}
+
+  h1,h2{margin:0;font-style:italic;text-transform:uppercase;letter-spacing:2px;font-weight:900}
+  h1 span,h2 span{color:var(--red)}
+  h3{margin:10px 0 4px;font-size:12px;color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:1.5px}
+  .small{font-size:12px;color:var(--dim);line-height:1.45}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .row.c{justify-content:center}
+  .grow{flex:1}
+
+  /* кнопки */
+  .btn{border:0;background:var(--red);padding:11px 22px;font-weight:800;font-style:italic;text-transform:uppercase;letter-spacing:1px;
+       clip-path:polygon(12px 0,100% 0,calc(100% - 12px) 100%,0 100%);transition:transform .08s,filter .15s}
+  .btn:active{transform:scale(.96)}
+  .btn:hover{filter:brightness(1.15)}
+  .btn.alt{background:#2a2e38}
+  .btn.ghost{background:rgba(255,255,255,.1)}
+  .btn.big{font-size:30px;padding:16px 56px;background:linear-gradient(90deg,var(--red),#ff5a2a);box-shadow:0 0 30px rgba(225,6,0,.5)}
+  .btn.sm{padding:7px 14px;font-size:13px}
+  .btn[disabled]{opacity:.4;pointer-events:none}
+  .opt{border:1px solid #333;background:#1b1e26;border-radius:8px;padding:8px 12px;font-size:14px}
+  .opt.on{background:var(--red);border-color:var(--red)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  input[type=text],input[type=password]{width:100%;background:#12141a;border:1px solid #333;border-radius:10px;color:#fff;padding:11px 12px;font-size:16px;outline:none}
+  input:focus{border-color:var(--red)}
+  .err{color:#ff6b6b;font-size:13px;min-height:18px}
+
+  /* ---------- загрузка ---------- */
+  #loader{align-items:center;justify-content:center;gap:16px}
+  #loader .logo{font-size:min(10vw,64px)}
+  .wheel{width:min(34vh,150px);height:min(34vh,150px);animation:spin .9s linear infinite;filter:drop-shadow(0 0 18px rgba(225,6,0,.5))}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .bar{width:min(70vw,420px);height:8px;background:#22252d;border-radius:4px;overflow:hidden;transform:skewX(-20deg)}
+  .bar b{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--red),var(--yel));transition:width .25s}
+  .pit{display:flex;gap:6px;font-size:22px;letter-spacing:2px;color:var(--dim)}
+
+  /* ---------- авторизация ---------- */
+  #auth{align-items:center;justify-content:center}
+  #auth .card{width:min(92vw,380px);display:flex;flex-direction:column;gap:10px}
+  .tabs{display:flex;gap:6px}
+  .tabs button{flex:1;background:#1b1e26;border:0;padding:9px;border-radius:8px;font-weight:700}
+  .tabs button.on{background:var(--red)}
+
+  /* ---------- лобби ---------- */
+  .top{display:flex;align-items:center;gap:10px;padding:10px 14px;flex:none}
+  .avatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--red),#7a0300);border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:20px;flex:none}
+  .who b{display:block;font-size:16px}
+  .pill{background:rgba(0,0,0,.55);border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-weight:800;display:flex;gap:6px;align-items:center;white-space:nowrap}
+  .pill .coin{color:var(--yel)}
+  #lobby .mid{flex:1;display:flex;align-items:flex-end;justify-content:center;pointer-events:none}
+  #carTag{background:rgba(0,0,0,.55);border-left:4px solid var(--red);padding:6px 16px;margin-bottom:8px;transform:skewX(-12deg)}
+  #carTag div{transform:skewX(12deg);font-style:italic;font-weight:800;text-transform:uppercase}
+  .dock{display:flex;align-items:flex-end;gap:10px;padding:12px 14px calc(12px);flex:none;background:linear-gradient(0deg,rgba(0,0,0,.75),transparent)}
+  .tile{position:relative;width:min(17vw,92px);height:min(17vw,92px);background:rgba(18,20,26,.85);border:1px solid var(--line);border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:12px;font-weight:700;text-transform:uppercase}
+  .tile .ic{font-size:28px;line-height:1}
+  .badge{position:absolute;top:-6px;right:-6px;background:var(--red);border-radius:999px;min-width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;padding:0 5px}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#555;margin-right:6px}
+  .dot.on{background:#3ddc84;box-shadow:0 0 8px #3ddc84}
+
+  /* ---------- общие экраны ---------- */
+  .head{display:flex;align-items:center;gap:12px;padding:10px 14px;flex:none}
+  .back{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:rgba(18,20,26,.85);font-size:22px;padding:0}
+  .body{flex:1;overflow:auto;padding:4px 14px 14px;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+  .center{align-items:center;justify-content:center}
+
+  /* гараж */
+  #garage .list{display:flex;gap:10px;overflow-x:auto;padding:6px 14px 14px;flex:none;touch-action:pan-x}
+  .gcar{flex:none;width:150px;border-radius:14px;border:2px solid var(--line);background:rgba(16,18,24,.85);padding:10px;text-align:left;position:relative}
+  .gcar.sel{border-color:var(--red);box-shadow:0 0 16px rgba(225,6,0,.45)}
+  .gcar b{display:block;font-style:italic;text-transform:uppercase}
+  .gcar .st{font-size:12px;color:var(--dim)}
+  .gcar .lock{position:absolute;top:8px;right:10px}
+  .stat{display:flex;align-items:center;gap:8px;font-size:12px;margin:3px 0}
+  .stat span{width:92px;color:var(--dim)}
+  .stat i{flex:1;height:7px;border-radius:4px;background:#232730;overflow:hidden;display:block}
+  .stat i u{display:block;height:100%;background:linear-gradient(90deg,var(--red),var(--yel))}
+  .upg{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+  .pips{display:flex;gap:3px}.pips u{width:14px;height:8px;background:#2a2e38;transform:skewX(-20deg)}.pips u.f{background:var(--yel)}
+
+  /* список игроков/друзей */
+  .li{display:flex;align-items:center;gap:8px;padding:9px 10px;border-bottom:1px solid var(--line)}
+  .li:last-child{border:0}
+  .tag{font-size:11px;background:var(--red);border-radius:5px;padding:2px 6px;font-weight:800;text-transform:uppercase}
+  .code{font-size:42px;font-weight:900;letter-spacing:8px;font-style:italic;color:var(--yel)}
+
+  /* панель друзей */
+  #friends{position:absolute;top:0;right:0;bottom:0;width:min(86vw,380px);display:none;flex-direction:column;background:rgba(11,12,16,.97);border-left:2px solid var(--red);pointer-events:auto;z-index:9}
+  #friends.on{display:flex}
+  #chat{flex:1;overflow:auto;padding:8px 12px;display:flex;flex-direction:column;gap:6px;touch-action:pan-y}
+  .msg{max-width:80%;padding:7px 11px;border-radius:12px;background:#22252d;word-break:break-word;font-size:14px}
+  .msg.me{align-self:flex-end;background:var(--red)}
+  #toast{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);background:#000c;border:1px solid var(--line);padding:9px 18px;border-radius:999px;font-size:14px;display:none;z-index:20;pointer-events:none;max-width:90vw;text-align:center}
+
+  /* ---------- игра ---------- */
   #touch{position:fixed;inset:0;z-index:4;display:none;pointer-events:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
   #touch button{pointer-events:auto;touch-action:none;position:absolute;border:2px solid rgba(255,255,255,.55);background:rgba(20,20,24,.45);color:#fff;font-weight:700;border-radius:18px;padding:0;-webkit-tap-highlight-color:transparent}
   #touch button.down{background:rgba(225,6,0,.65)}
@@ -27,38 +134,47 @@
   #tUp{bottom:calc(52vh + 28px)}
   #tDown{bottom:calc(52vh + 28px + 19vh)}
   #tTop button{top:8px;width:46px;height:42px;font-size:20px;border-radius:12px}
-  #tPause{left:calc(50% - 125px)}#tView{left:calc(50% - 73px)}#tAuto{left:calc(50% - 21px);font-size:13px!important}#tReset{left:calc(50% + 31px)}#tCal{left:calc(50% + 83px)}#tAssist{left:calc(50% + 135px);font-size:13px!important}
+  #tPause{left:calc(50% - 151px)}#tView{left:calc(50% - 99px)}#tAuto{left:calc(50% - 47px);font-size:13px!important}#tReset{left:calc(50% + 5px)}#tCal{left:calc(50% + 57px)}#tAssist{left:calc(50% + 109px);font-size:12px!important}
   #tHud{position:absolute;top:56px;left:0;right:0;text-align:center;font:700 15px ui-monospace,Menlo,monospace;text-shadow:0 0 4px #000,0 0 4px #000}
-  #mon{font:13px/1.45 ui-monospace,Menlo,monospace;background:#111;border:1px solid #333;border-radius:10px;padding:6px 12px;min-width:240px}
-  .small{font-size:12px;color:#aaa;max-width:460px}
-  .row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  #mon{font:13px/1.45 ui-monospace,Menlo,monospace;background:#111;border:1px solid #333;border-radius:10px;padding:6px 12px}
+  #results{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(0,0,0,.86);z-index:6;text-align:center;padding:12px;overflow:auto}
   table{border-collapse:collapse;min-width:260px}
   td{padding:5px 12px;border-bottom:1px solid #333}
-  tr.me{color:#ffcc00;font-weight:700}
+  tr.me{color:var(--yel);font-weight:700}
 </style>
 </head>
 <body>
-<div id="menu">
-  <h1>PROMA<span>RACER</span></h1>
-  <h3>Класс машины</h3><div class="row" id="carBtns"></div>
-  <div class="small" id="carInfo"></div>
-  <h3>Трасса</h3><div class="row" id="trackBtns"></div>
-  <h3>Круги / соперники / коробка</h3>
-  <div class="row" id="lapBtns"></div><div class="row" id="oppBtns"></div><div class="row" id="gearBtns"></div>
-  <h3>Помощь водителю и обзор</h3><div class="row" id="assistBtns"></div><div class="row" id="gyroBtns"></div>
-  <h3>Телефон без клавиатуры</h3><div class="row" id="steerBtns"></div><div class="row" id="invBtns"></div>
-  <div id="mon">Руль: нет сигнала<br>Последняя клавиша: —<br>Газ 0 · Тормоз 0</div>
-  <div class="row">
-    <button id="bVR">Старт (VR очки)</button>
-    <button id="bTouch">Старт: телефон, касанием</button>
-    <button id="bMono" class="alt">Старт (один экран)</button>
+<canvas id="bg3d"></canvas>
+
+<div id="ui">
+  <!-- Загрузка -->
+  <div id="loader" class="scr solid on" style="align-items:center;justify-content:center;gap:16px">
+    <div class="speed"></div>
+    <h1 class="logo">PROMA<span>RACER</span></h1>
+    <svg class="wheel" viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="46" fill="#111" stroke="#2a2d36" stroke-width="2"/>
+      <circle cx="50" cy="50" r="30" fill="#b9bcc2"/>
+      <circle cx="50" cy="50" r="24" fill="#1a1c22"/>
+      <g stroke="#b9bcc2" stroke-width="5"><line x1="50" y1="28" x2="50" y2="72"/><line x1="28" y1="50" x2="72" y2="50"/><line x1="34.5" y1="34.5" x2="65.5" y2="65.5"/><line x1="65.5" y1="34.5" x2="34.5" y2="65.5"/></g>
+      <circle cx="50" cy="50" r="7" fill="#e10600"/>
+    </svg>
+    <div class="bar"><b id="loadBar"></b></div>
+    <div class="pit" id="loadTip">ПИТ-СТОП ГОТОВИТСЯ…</div>
   </div>
-  <div class="small">Сначала подключи «PromaRacer Wheel» в настройках Bluetooth телефона. Телефон горизонтально; тап по экрану в игре — выровнять взгляд вперёд.</div>
-  <div class="small" style="border-top:1px solid #333;padding-top:6px">
-    <b>Клавиатура:</b> Enter старт · W газ · S тормоз · A / D руль · E / Q передача выше / ниже · N авто/ручная · Пробел помощники · R вернуть на трассу · V вид сзади · Esc пауза.<br>
-    <b>Cardputer:</b> 9 газ · o тормоз · 0 / p передачи · руль наклоном.
-  </div>
+
+  <div id="auth" class="scr dim"></div>
+  <div id="lobby" class="scr"></div>
+  <div id="garage" class="scr"></div>
+  <div id="profile" class="scr dim"></div>
+  <div id="settings" class="scr dim"></div>
+  <div id="play" class="scr dim"></div>
+  <div id="setup" class="scr dim"></div>
+  <div id="join" class="scr dim"></div>
+  <div id="room" class="scr dim"></div>
+  <div id="friends"></div>
+  <div id="toast"></div>
 </div>
+
 <div id="touch">
   <div id="tHud"></div>
   <button id="tBrake">ТОРМОЗ</button><button id="tGas">ГАЗ</button>
@@ -70,10 +186,14 @@
   <h1>РЕЗУЛЬТАТ</h1>
   <table id="resList"></table>
   <div id="resBest" class="small"></div>
-  <div class="row"><button id="bAgain">Ещё раз</button><button id="bMenu" class="alt">В меню (Enter)</button></div>
+  <div id="resCoins" style="color:#ffcc00;font-weight:800"></div>
+  <div class="row c"><button id="bAgain" class="btn">Ещё раз</button><button id="bMenu" class="btn alt">В лобби (Enter)</button></div>
 </div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script>window.THREE||document.getElementById("menu").insertAdjacentHTML("afterbegin","<b style=\"color:#f66\">Three.js не загрузился: нужен интернет (cdnjs.cloudflare.com).</b>")</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>window.THREE||document.getElementById("loadTip").insertAdjacentHTML("afterend","<b style=\"color:#f66\">Three.js не загрузился: нужен интернет (cdnjs.cloudflare.com).</b>")</script>
+<script src="js/config.js"></script>
 <script src="js/cars.js"></script>
 <script src="js/track.js"></script>
 <script src="js/physics.js"></script>
@@ -81,6 +201,9 @@
 <script src="js/input.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/render.js"></script>
+<script src="js/net.js"></script>
+<script src="js/lobby3d.js"></script>
 <script src="js/main.js"></script>
+<script src="js/ui.js"></script>
 </body>
 </html>

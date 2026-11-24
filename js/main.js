@@ -2,67 +2,59 @@
 /* Игра: меню, гонка, круги, позиции, соперники, результаты. */
 const HSTEP = 1 / 120;
 const G = {
-  state: "menu", vr: true, touch: false, assist: true, gyroLook: true, flash: "", touchSteer: "tilt", tiltInv: false, carId: "f1", trackIdx: 0, laps: 3, opp: 5, auto: true,
+  state: "menu", vr: true, touch: false, screen: "", mode: "race", online: false, roster: null, lockCar: null, rewarded: false,
+  coinsEarned: 0, assist: true, gyroLook: true, flash: "", touchSteer: "tilt", tiltInv: false, carId: "f1", trackIdx: 0, laps: 3, opp: 5, auto: true,
   cars: [], player: null, t: 0, accum: 0, paused: false, msgT: 0, msgText: "", autoMsgT: 0, bests: {}
 };
 const AI_COLORS = [0x1d6fe0, 0xf2a900, 0x20a050, 0xa020c0, 0xe0e0e0, 0xff6a00, 0x00b8c8];
 
 try { Object.assign(G, JSON.parse(localStorage.getItem("promaracer.settings") || "{}")); G.bests = JSON.parse(localStorage.getItem("promaracer.bests") || "{}"); } catch (e) {}
+if (!G.screen) { try { G.screen = ("ontouchstart" in window || navigator.maxTouchPoints > 0) ? "touch" : "mono"; } catch (e) { G.screen = "mono"; } }
 function saveSettings() {
   try {
-    localStorage.setItem("promaracer.settings", JSON.stringify({ carId: G.carId, trackIdx: G.trackIdx, laps: G.laps, opp: G.opp, auto: G.auto, touchSteer: G.touchSteer, tiltInv: G.tiltInv, assist: G.assist, gyroLook: G.gyroLook }));
+    localStorage.setItem("promaracer.settings", JSON.stringify({ screen: G.screen, mode: G.mode, carId: G.carId, trackIdx: G.trackIdx, laps: G.laps, opp: G.opp, auto: G.auto, touchSteer: G.touchSteer, tiltInv: G.tiltInv, assist: G.assist, gyroLook: G.gyroLook }));
     localStorage.setItem("promaracer.bests", JSON.stringify(G.bests));
   } catch (e) {}
 }
 const $ = id => document.getElementById(id);
 const fmt = t => { if (t == null) return ""; const m = Math.floor(t / 60), s = t - m * 60; return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1); };
 
-/* ---------- Меню ---------- */
-function group(id, items, get, set) {
-  const el = $(id); el.innerHTML = "";
-  for (const it of items) {
-    const b = document.createElement("button");
-    b.textContent = it.label; b.className = "opt" + (get() === it.value ? " on" : "");
-    b.onclick = () => { set(it.value); saveSettings(); buildMenu(); };
-    el.appendChild(b);
-  }
-}
-function buildMenu() {
-  group("carBtns", CAR_ORDER.map(id => ({ label: CARS[id].name, value: id })), () => G.carId, v => G.carId = v);
-  group("trackBtns", TRACKS.map((t, i) => ({ label: t.name, value: i })), () => G.trackIdx, v => G.trackIdx = v);
-  group("lapBtns", [1, 3, 5, 10].map(n => ({ label: n + " кр.", value: n })), () => G.laps, v => G.laps = v);
-  group("oppBtns", [0, 3, 5, 7].map(n => ({ label: n === 0 ? "Один" : n + " соп.", value: n })), () => G.opp, v => G.opp = v);
-  group("gearBtns", [{ label: "Авто", value: true }, { label: "Ручная", value: false }], () => G.auto, v => G.auto = v);
-  group("steerBtns", [{ label: "Руль: наклон телефона", value: "tilt" }, { label: "Руль: кнопки ◀ ▶", value: "btn" }], () => G.touchSteer, v => G.touchSteer = v);
-  group("invBtns", [{ label: "Наклон обычный", value: false }, { label: "Инверсия руля", value: true }], () => G.tiltInv, v => G.tiltInv = v);
-  group("assistBtns", [{ label: "Помощники: ВКЛ", value: true }, { label: "Помощники: ВЫКЛ", value: false }], () => G.assist, v => G.assist = v);
-  group("gyroBtns", [{ label: "Обзор гироскопом: ВКЛ", value: true }, { label: "Обзор гироскопом: ВЫКЛ", value: false }], () => G.gyroLook, v => G.gyroLook = v);
-  const D = CARS[G.carId];
-  $("carInfo").textContent = D.hp + " л.с. · " + D.mass + " кг · " + D.ratios.length + " передач · до " + D.redline + " об/мин · " +
-    (D.ClA > 1.5 ? "много прижимной силы" : "мало прижимной силы") + (D.abs ? " · ABS" : " · без ABS");
-}
-function updateMonitor() {
-  $("mon").innerHTML = (input.steerSeen ? "руль " + input.steerTarget.toFixed(2) : "руль: нет сигнала") +
-    "<br>Последняя клавиша: " + input.lastKey + "<br>Газ " + input.gas + " · Тормоз " + input.brake;
-}
-setInterval(() => { if (G.state === "menu") updateMonitor(); }, 100);
-
 /* ---------- Старт гонки ---------- */
+function playerDef() {
+  const id = G.lockCar || G.carId;
+  const up = (typeof NET !== "undefined" && !G.lockCar && NET.profile.garage) ? NET.profile.garage[id] : null;
+  return upgradedDef(id, up);
+}
+function placeOnGrid(c, slot) { c.s = -10 - 9 * slot; c.d = slot % 2 ? 2.6 : -2.6; c.prevLap = -1; c.lapStart = 0; }
+
 function startRace() {
   buildTrack(TRACKS[G.trackIdx]);
   buildWorld();
-  const D = CARS[G.carId], cars = [], n = G.opp;
-  for (let i = 0; i < n; i++) {
-    const c = newVehicle(D); c.auto = true; c.color = AI_COLORS[i % AI_COLORS.length]; c.isAI = true;
-    c.ai = newAI(D, 1.0 - i * 0.012 - (i % 3) * 0.006, [-2.2, 2.2][i % 2]);
-    c.ai.base = c.ai.offset; c.name = "Соперник " + (i + 1);
-    c.s = -10 - 9 * i; c.d = i % 2 ? 2.6 : -2.6; c.prevLap = -1; c.lapStart = 0; cars.push(c);
+  const D = playerDef(), cars = [];
+  let me;
+  if (G.roster) {                                   // онлайн: все слоты — люди, одинаковая решётка у всех
+    for (const r of G.roster) {
+      if (r.me) continue;
+      const rd = G.lockCar ? D : CARS[r.car] || CARS.gtr;
+      const c = newVehicle(rd); c.remote = true; c.isAI = false; c.color = AI_COLORS[r.slot % AI_COLORS.length]; c.name = r.name; c.uid = r.id; c.tgt = null;
+      placeOnGrid(c, r.slot); cars.push(c);
+    }
+    me = G.roster.find(r => r.me);
+  } else {
+    const n = G.mode === "time" ? 0 : G.opp;
+    for (let i = 0; i < n; i++) {
+      const c = newVehicle(D); c.auto = true; c.color = AI_COLORS[i % AI_COLORS.length]; c.isAI = true;
+      c.ai = newAI(D, 1.0 - i * 0.012 - (i % 3) * 0.006, [-2.2, 2.2][i % 2]);
+      c.ai.base = c.ai.offset; c.name = "Соперник " + (i + 1);
+      placeOnGrid(c, i); c.s = -10 - 9 * i; cars.push(c);
+    }
+    me = { slot: n, name: "Ты" };
   }
-  const p = newVehicle(D); p.auto = G.auto; p.assist = G.assist; p.name = "Ты"; p.s = -10 - 9 * n; p.d = n % 2 ? 2.6 : -2.6; p.prevLap = -1; p.lapStart = 0;
+  const p = newVehicle(D); p.auto = G.auto; p.assist = G.assist; p.name = me.name || "Ты"; placeOnGrid(p, me.slot);
   cars.push(p);
-  G.cars = cars; G.player = p; G.t = -6; G.accum = 0; G.paused = false; G.state = "grid";
+  G.cars = cars; G.player = p; G.t = -6; G.accum = 0; G.paused = false; G.state = "grid"; G.rewarded = false; G.coinsEarned = 0; G.netT = 0;
   p.best = (G.bests[G.carId + "|" + TRACKS[G.trackIdx].id]) || null;
-  setAICars(cars.filter(c => c.isAI));
+  setAICars(cars.filter(c => c !== p));
   buildCockpit(D);
   $("results").style.display = "none";
   R.view = "cockpit";
@@ -81,6 +73,7 @@ function laneAhead(c) {
   return best ? { o: best, gap } : null;
 }
 function collide() {
+  if (G.mode === "time") return;
   const L = TRACK.L, cs = G.cars;
   for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) {
     const a = cs[i], b = cs[j];
@@ -96,6 +89,23 @@ function collide() {
   }
 }
 
+/* Удалённый игрок: плавно подтягиваем машину к последнему пакету с экстраполяцией по скорости. */
+function remoteStep(c, h) {
+  const t = c.tgt; if (!t) { c.rpm += (c.def.idle + (c.def.redline - c.def.idle) * 0.4 - c.rpm) * Math.min(1, h * 6); return; }
+  const age = Math.min(0.4, (performance.now() - t.at) / 1000), k = Math.min(1, h * 14);
+  c.s += (t.s + t.vx * age - c.s) * k; c.d += (t.d - c.d) * k; c.psi += (t.psi - c.psi) * k;
+  c.vx = t.vx; c.delta = t.dl; c.ax = t.ax; c.ay = t.ay; c.rpm = t.rpm; c.finishT = t.fin;
+}
+function sendNet(dt) {
+  if (!G.online || typeof NET === "undefined" || !NET.room) return;
+  G.netT = (G.netT || 0) - dt; if (G.netT > 0) return; G.netT = 0.05;
+  const P = G.player, r = (v, n) => Math.round(v * n) / n;
+  NET.roomSend("st", { u: NET.user.id, s: r(P.s, 100), d: r(P.d, 100), psi: r(P.psi, 1000), vx: r(P.vx, 100), dl: r(P.delta, 1000), ax: Math.round(P.ax), ay: Math.round(P.ay), rpm: Math.round(P.rpm), fin: P.finishT == null ? null : r(P.finishT, 100) });
+}
+function onRemoteState(m) {
+  for (const c of G.cars) if (c.uid === m.u) { m.at = performance.now(); c.tgt = m; if (c.s < -20 && m.s > c.s) c.s = m.s; break; }
+}
+
 function simStep(h) {
   const cs = G.cars, P = G.player;
   if (G.state === "grid") {                 // стоим на решётке, двигатель крутится
@@ -108,6 +118,7 @@ function simStep(h) {
   }
   for (const c of cs) {
     let inp;
+    if (c.remote) { remoteStep(c, h); continue; }
     if (c.isAI) {
       const lead = laneAhead(c);
       if (lead) {                                        // обгон: смещаемся на свободную сторону
@@ -146,19 +157,38 @@ function simStep(h) {
   if (G.state === "race" && P.finishT != null) { G.state = "finish"; showResults(); }
 }
 
-function showResults() {
-  const order = G.cars.slice().sort((a, b) => {
+function resultOrder() {
+  return G.cars.slice().sort((a, b) => {
     if (a.finishT != null && b.finishT != null) return a.finishT - b.finishT;
     if (a.finishT != null) return -1; if (b.finishT != null) return 1;
     return b.s - a.s;
   });
-  const tw = order[0].finishT;
+}
+function drawResults() {
+  const order = resultOrder(), tw = order[0].finishT;
   $("resList").innerHTML = order.map((c, i) =>
-    "<tr" + (c === G.player ? ' class="me"' : "") + "><td>" + (i + 1) + "</td><td>" + c.name + "</td><td>" +
+    "<tr" + (c === G.player ? ' class="me"' : "") + "><td>" + (i + 1) + "</td><td>" + String(c.name).replace(/</g, "&lt;") + "</td><td>" +
     (c.finishT != null ? (i === 0 ? fmt(c.finishT) : "+" + (c.finishT - tw).toFixed(1) + " с") : "едет") + "</td></tr>").join("");
+}
+function raceReward(pos, total) {
+  const lapK = Math.max(0.5, Math.min(2.5, G.laps / 3));
+  if (total <= 1) return Math.round(150 * lapK);
+  return Math.round(((total - pos + 1) / total * 600 + (pos === 1 ? 800 : 0)) * lapK);
+}
+function showResults() {
+  drawResults();
   $("resBest").textContent = G.player.best != null ? "Лучший круг: " + fmt(G.player.best) : "";
+  const pos = rank(G.player);
+  if (!G.rewarded) {
+    G.rewarded = true;
+    G.coinsEarned = raceReward(pos, G.cars.length);
+    if (typeof NET !== "undefined") { NET.award(G.coinsEarned, pos === 1 && G.cars.length > 1).then(() => { if (typeof UI !== "undefined") UI.refresh(); }); NET.saveBests(G.bests); }
+  }
+  $("resCoins").textContent = "+" + G.coinsEarned + " монет";
+  $("bAgain").style.display = G.online && !(NET.room && NET.room.host) ? "none" : "";
   $("results").style.display = "flex";
 }
+setInterval(() => { if (G.state === "finish" && $("results").style.display === "flex") drawResults(); }, 700);
 
 /* ---------- Кадр ---------- */
 let last = performance.now();
@@ -182,6 +212,7 @@ function frame(now) {
     while (G.accum >= HSTEP && n < 8) { simStep(HSTEP); G.accum -= HSTEP; n++; }
     if (n === 8) G.accum = 0;
     G.msgT = Math.max(0, G.msgT - dt); G.autoMsgT = Math.max(0, G.autoMsgT - dt);
+    sendNet(dt);
   }
 
   // данные приборки
@@ -200,7 +231,7 @@ function frame(now) {
   }
   else if (G.msgT > 0) { S.msg = G.msgText; S.msgColor = "#7dff9a"; }
   else if (G.autoMsgT > 0) { S.msg = G.flash; S.msgSize = G.flash.length > 8 ? 44 : 60; }
-  else if (G.state === "finish") { S.msg = "ФИНИШ P" + S.pos; S.msgColor = "#7dff9a"; S.msgSize = 70; S.msg2 = "Enter — меню"; }
+  else if (G.state === "finish") { S.msg = "ФИНИШ P" + S.pos; S.msgColor = "#7dff9a"; S.msgSize = 70; S.msg2 = "Enter — лобби"; }
 
   const throttle = G.state === "grid" ? input.gasSm : (G.state === "finish" ? 0 : input.gasSm);
   updateAudio(P, !G.paused, throttle);
@@ -212,7 +243,8 @@ function frame(now) {
 }
 
 /* ---------- Запуск ---------- */
-async function begin(mode) {
+async function begin() {
+  const mode = G.screen;
   G.vr = mode === "vr"; G.touch = mode === "touch";
   input.touchMode = G.touch; input.touchSteer = G.touchSteer; tilt.invert = G.tiltInv;
   await enableGyro();
@@ -224,27 +256,25 @@ async function begin(mode) {
   $("tAssist").style.display = G.touch ? "block" : "none";
   startAudio();
   try { if (navigator.wakeLock) await navigator.wakeLock.request("screen"); } catch (e) {}
-  $("menu").style.display = "none";
+  if (typeof UI !== "undefined") UI.hide();
   initRender(); resizeRender();
+  R.renderer.domElement.style.display = "block"; R.renderer.domElement.style.zIndex = 2;
   startRace();
   recenter();
   if (G.touch) setTimeout(calibrateTilt, 400);
 }
 function toMenu() {
-  $("results").style.display = "none"; $("menu").style.display = "flex"; $("touch").style.display = "none";
+  $("results").style.display = "none"; $("touch").style.display = "none";
   input.touchMode = false; input.gas = input.brake = input.kbLeft = input.kbRight = 0;
   G.state = "menu"; updateAudio(G.player || { def: CARS.gtr, rpm: 1000, vx: 0, alphaF: 0, alphaR: 0, shiftT: 0, rpmWheel: 0 }, false, 0);
-  buildMenu();
+  if (R.inited) R.renderer.domElement.style.display = "none";
+  if (typeof UI !== "undefined") UI.afterRace();
 }
-input.onEnter = () => {
-  if (G.state === "menu") begin("mono");
-  else if (G.state === "finish") toMenu();
+input.onEnter = () => { if (G.state === "finish") toMenu(); };
+$("bMenu").onclick = () => { if (G.online && typeof NET !== "undefined" && NET.room && NET.room.host) NET.roomSend("end", {}); toMenu(); };
+$("bAgain").onclick = () => {
+  $("results").style.display = "none";
+  if (G.online && typeof UI !== "undefined") UI.hostStart(); else startRace();
 };
-$("bVR").onclick = () => begin("vr");
-$("bMono").onclick = () => begin("mono");
-$("bTouch").onclick = () => begin("touch");
-$("bMenu").onclick = toMenu;
-$("bAgain").onclick = () => { $("results").style.display = "none"; startRace(); };
 addEventListener("pointerup", () => { if (G.state !== "menu" && !G.touch && !look.moved) { if (gyro.enabled) recenter(); else look.yaw = look.pitch = 0; } });
-buildMenu();
 requestAnimationFrame(frame);
