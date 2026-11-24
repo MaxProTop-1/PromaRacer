@@ -6,7 +6,6 @@ const NET = {
   friends: [], incoming: [], outgoing: [], onlineIds: new Set(), unread: {},
   lobbyCh: null, msgCh: null, room: null, onChange: () => {}, onChat: null
 };
-const emailOf = name => name.toLowerCase() + "@promaracer.game";
 const NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
 
 /* ---------- Профиль гостя ---------- */
@@ -36,21 +35,26 @@ NET.restore = async function () {
   } catch (e) {}
   return false;
 };
-NET.signUp = async function (name, pass) {
+NET.signUp = async function (name, email, pass, pass2) {
   if (!NET.ready) return "Нет подключения к серверу";
   if (!NAME_RE.test(name)) return "Ник: 3–16 символов, латиница, цифры и _";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return "Введи настоящий e-mail";
   if (pass.length < 6) return "Пароль минимум 6 символов";
-  const { data, error } = await NET.sb.auth.signUp({ email: emailOf(name), password: pass, options: { data: { username: name } } });
-  if (error) return /registered|exists/i.test(error.message) ? "Этот ник уже занят" : error.message;
-  if (!data.session) return NET.signIn(name, pass);      // если сервер не создал сессию сразу
+  if (pass !== pass2) return "Пароли не совпадают";
+  const t = await NET.sb.rpc("username_taken", { p_name: name });
+  if (t.data === true) return "Этот ник уже занят";
+  const { data, error } = await NET.sb.auth.signUp({ email, password: pass, options: { data: { username: name }, emailRedirectTo: location.href.split("#")[0] } });
+  if (error) return /registered|exists/i.test(error.message) ? "Эта почта уже зарегистрирована" : error.message;
+  if (data.user && data.user.identities && data.user.identities.length === 0) return "Эта почта уже зарегистрирована";
+  if (!data.session) return "!Письмо отправлено на " + email + ". Подтверди почту по ссылке в письме, потом войди.";
   await NET.afterLogin(data.user, name);
   return null;
 };
-NET.signIn = async function (name, pass) {
+NET.signIn = async function (email, pass) {
   if (!NET.ready) return "Нет подключения к серверу";
-  const { data, error } = await NET.sb.auth.signInWithPassword({ email: emailOf(name), password: pass });
-  if (error) return /confirm/i.test(error.message) ? "Сервер требует подтверждение почты: выключи «Confirm email» в Supabase" : "Неверный ник или пароль";
-  await NET.afterLogin(data.user, name);
+  const { data, error } = await NET.sb.auth.signInWithPassword({ email, password: pass });
+  if (error) return /confirm/i.test(error.message) ? "Сначала подтверди почту (ссылка в письме)" : "Неверный e-mail или пароль";
+  await NET.afterLogin(data.user);
   return null;
 };
 NET.signOut = async function () {
@@ -64,7 +68,7 @@ NET.afterLogin = async function (user, name) {
   const uname = name || (user.user_metadata && user.user_metadata.username) || (user.email || "").split("@")[0];
   let { data } = await NET.sb.from("profiles").select("*").eq("id", user.id).maybeSingle();
   if (!data) {
-    const ins = await NET.sb.from("profiles").insert({ id: user.id, username: uname }).select().single();
+    const ins = await NET.sb.from("profiles").insert({ id: user.id, username: uname, email: user.email }).select().single();
     data = ins.data;
   }
   if (data) NET.profile = data;

@@ -55,13 +55,15 @@ UI.render = function () {
 function rAuth() {
   const up = UI.authTab === "up";
   $("auth").innerHTML = `<div class="speed">${Array.from({ length: 8 }, (_, i) => `<i style="top:${8 + i * 12}%;animation-delay:${i * 0.17}s"></i>`).join("")}</div>
-  <div style="flex:1;display:flex;align-items:center;justify-content:center;pointer-events:none"><div class="card" style="width:min(92vw,380px);display:flex;flex-direction:column;gap:10px;pointer-events:auto">
-    <h1 style="font-size:26px;text-align:center">PROMA<span>RACER</span></h1>
+  <div style="flex:1;display:flex;overflow:auto;pointer-events:auto;touch-action:pan-y;padding:10px"><div class="card" style="width:min(92vw,380px);display:flex;flex-direction:column;gap:8px;margin:auto">
+    <h1 style="font-size:22px;text-align:center">PROMA<span>RACER</span></h1>
     ${NET.ready ? `<div class="tabs"><button class="${up ? "" : "on"}" data-act="authtab" data-v="in">Войти</button><button class="${up ? "on" : ""}" data-act="authtab" data-v="up">Создать аккаунт</button></div>
-    <input id="aName" type="text" placeholder="Ник (латиница, цифры)" autocomplete="username" autocapitalize="off" maxlength="16">
+    ${up ? '<input id="aName" type="text" placeholder="Ник (латиница, цифры)" autocomplete="username" autocapitalize="off" maxlength="16">' : ""}
+    <input id="aMail" type="email" placeholder="E-mail" autocomplete="email" autocapitalize="off" style="width:100%;background:#12141a;border:1px solid #333;border-radius:10px;color:#fff;padding:11px 12px;font-size:16px;outline:none">
     <input id="aPass" type="password" placeholder="Пароль" autocomplete="${up ? "new-password" : "current-password"}">
+    ${up ? '<input id="aPass2" type="password" placeholder="Повтори пароль" autocomplete="new-password">' : ""}
     <div class="err" id="aErr"></div>
-    <button class="btn" data-act="doauth">${up ? "Создать и играть" : "Войти"}</button>` :
+    <button class="btn" data-act="doauth">${up ? "Создать аккаунт" : "Войти"}</button>` :
     `<div class="small">Онлайн пока недоступен: в js/config.js не вписан ключ Supabase. Можно играть офлайн.</div>`}
     <button class="btn alt sm" data-act="guest">Играть как гость (без онлайна)</button>
   </div></div>`;
@@ -275,9 +277,11 @@ const ACT = {
   guest: () => { try { localStorage.setItem("promaracer.guestok", "1"); } catch (e) {} UI.show("lobby"); },
   needLogin: () => toast("Онлайн требует аккаунт: Профиль → Войти"),
   async doauth() {
-    const name = $("aName").value.trim(), pass = $("aPass").value, err = $("aErr");
-    err.textContent = "Подключаемся…";
-    const e = UI.authTab === "up" ? await NET.signUp(name, pass) : await NET.signIn(name, pass);
+    const mail = $("aMail").value.trim(), pass = $("aPass").value, err = $("aErr");
+    err.style.color = ""; err.textContent = "Подключаемся…";
+    const up = UI.authTab === "up";
+    const e = up ? await NET.signUp($("aName").value.trim(), mail, pass, $("aPass2").value) : await NET.signIn(mail, pass);
+    if (e && e[0] === "!") { UI.authTab = "in"; rAuth(); $("aErr").style.color = "#7dff9a"; $("aErr").textContent = e.slice(1); return; }
     if (e) { err.textContent = e; return; }
     syncCar(); UI.show("lobby");
   },
@@ -347,7 +351,7 @@ $("ui").addEventListener("keydown", e => {
   e.stopPropagation();                               // в полях ввода клавиши не должны управлять машиной
   if (e.key !== "Enter") return;
   if (e.target.id === "cIn") ACT.sendMsg(); else if (e.target.id === "fName") ACT.addFriend();
-  else if (e.target.id === "jCode") ACT.joinRoom(); else if (e.target.id === "aPass" || e.target.id === "aName") ACT.doauth();
+  else if (e.target.id === "jCode") ACT.joinRoom(); else if (/^a(Pass2?|Mail|Name)$/.test(e.target.id)) ACT.doauth();
 }, true);
 $("ui").addEventListener("keyup", e => e.stopPropagation(), true);
 

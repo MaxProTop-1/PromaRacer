@@ -88,7 +88,7 @@
 
 ### Настройка Supabase (один раз)
 1. SQL Editor -> вставь и выполни `supabase/schema.sql`.
-2. Authentication -> Providers -> Email: выключи **Confirm email** (вход идёт по нику, почта не нужна).
+2. Authentication -> Providers -> Email: оставь **Confirm email включённым** (защита от спама: аккаунт работает только после подтверждения почты). В URL Configuration -> Site URL укажи адрес игры.
 3. Project Settings -> API -> скопируй **anon public** ключ в `js/config.js` (`SUPABASE_ANON_KEY`). Он публичный, его можно коммитить. Без ключа игра работает офлайн с гостевым профилем.
 
 Проверка логики лобби и онлайна без браузера: `node tests/ui.js`.

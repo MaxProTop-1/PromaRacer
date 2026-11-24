@@ -4,6 +4,7 @@
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   username text unique not null check (char_length(username) between 3 and 16),
+  email text,
   coins int not null default 10000,
   races int not null default 0,
   wins int not null default 0,
@@ -94,3 +95,17 @@ do $$ begin
   alter publication supabase_realtime add table public.messages;
   alter publication supabase_realtime add table public.friendships;
 exception when duplicate_object then null; end $$;
+
+-- Почта в профиль (для уже созданной таблицы) и автозаполнение из аккаунта
+alter table public.profiles add column if not exists email text;
+update public.profiles p set email = u.email from auth.users u where u.id = p.id and p.email is null;
+create or replace function public.fill_profile_email() returns trigger language plpgsql security definer set search_path = public as $$
+begin new.email := (select email from auth.users where id = new.id); return new; end $$;
+drop trigger if exists profiles_email on public.profiles;
+create trigger profiles_email before insert on public.profiles for each row execute function public.fill_profile_email();
+
+-- Проверка свободного ника до регистрации (возвращает только да/нет)
+create or replace function public.username_taken(p_name text) returns boolean
+language sql security definer set search_path = public as $$
+  select exists (select 1 from public.profiles where lower(username) = lower(p_name)) $$;
+grant execute on function public.username_taken(text) to anon, authenticated;
