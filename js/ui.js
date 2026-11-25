@@ -128,6 +128,7 @@ function rProfile() {
     <div class="row"><div class="avatar">${esc((p.username || "?")[0].toUpperCase())}</div><div><b style="font-size:20px">${esc(p.username)}</b><div class="small">${NET.guest ? "Гостевой профиль хранится на этом устройстве" : "Аккаунт онлайн"}</div></div></div>
     <h3>Статистика</h3>
     <div class="row"><div class="pill">Гонок: <b>${p.races}</b></div><div class="pill">Побед: <b>${p.wins}</b></div><div class="pill"><span class="coin">●</span><b>${coinStr(p.coins)}</b></div><div class="pill">Машин: <b>${ownedIds().length}</b></div></div>
+    <h3>Промокод</h3><div class="row"><input id="promo" placeholder="Введи код" autocomplete="off" autocapitalize="off" style="flex:1;min-width:0;padding:10px;border-radius:8px;border:1px solid #444;background:#1a1d24;color:#fff"><button class="btn sm" data-act="promo">Применить</button></div>
     <h3>Лучшие круги</h3>${rows || '<div class="small">Пока нет заездов.</div>'}
     <div style="margin-top:14px">${NET.guest ? '<button class="btn" data-act="login">Войти / создать аккаунт</button>' : '<button class="btn alt" data-act="logout">Выйти из аккаунта</button>'}</div>
   </div></div><div class="checker"></div>`;
@@ -300,6 +301,12 @@ const ACT = {
     const cost = CAR_PRICE[d.id], g = Object.assign({}, NET.profile.garage); g[d.id] = { e: 0, t: 0, a: 0 };
     const e = await NET.spend(cost, g); if (e) { toast(e); return; }
     await NET.setSelected(d.id); syncCar(); toast("Машина куплена!"); UI.render();
+  },
+  async promo() {
+    const el = $("promo"), g = applyPromo(el && el.value, NET.profile.garage);
+    if (!g) { toast("Неверный промокод"); return; }
+    const e = await NET.spend(0, g); if (e) { toast(e); return; }
+    syncCar(); UI.syncBg(); toast("Промокод активирован!"); UI.render();
   },
   async upg(d) {
     const id = UI.sel, g = JSON.parse(JSON.stringify(NET.profile.garage)), lvl = g[id][d.k] || 0;

@@ -94,3 +94,16 @@ function upgradedDef(id, up) {
   d.torque = rpm => d.Tpeak * B.shape(Math.max(rpm, d.idle) / d.powerRpm);
   return d;
 }
+
+/* ---------- Промокоды ---------- */
+const PROMOS = {
+  speed: { name: "Все машины на максимум", garage: () => { const g = {}; for (const id of CAR_ORDER) g[id] = { e: UPG_MAX, t: UPG_MAX, a: UPG_MAX }; return g; } },
+  garage: { name: "Все машины без улучшений", garage: () => { const g = {}; for (const id of CAR_ORDER) g[id] = { e: 0, t: 0, a: 0 }; return g; } }
+};
+/* Применяет код к гаражу: не понижает уже купленные улучшения. Возвращает новый гараж или null. */
+function applyPromo(code, cur) {
+  const P = PROMOS[String(code || "").trim().toLowerCase()]; if (!P) return null;
+  const add = P.garage(), g = JSON.parse(JSON.stringify(cur || {}));
+  for (const id in add) { const o = g[id] || {}; g[id] = { e: Math.max(o.e || 0, add[id].e), t: Math.max(o.t || 0, add[id].t), a: Math.max(o.a || 0, add[id].a) }; }
+  return g;
+}
