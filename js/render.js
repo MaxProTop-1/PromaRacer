@@ -150,7 +150,7 @@ function buildWorld() {
 }
 
 /* ---------- Машины ---------- */
-function wheelMesh(r, w) {
+function wheelMesh(r, w) {                     // простое колесо (используется в кокпите формул)
   const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w, 18), lam(0x111113));
   m.rotation.z = Math.PI / 2;
   const g = new THREE.Group(); g.add(m);
@@ -159,36 +159,181 @@ function wheelMesh(r, w) {
   return g;
 }
 
+/* Склейка статичных деталей по материалам: на машину остаётся ~8 вызовов отрисовки вместо сотен. */
+function bakeGroup(root) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const by = new Map(), all = [];
+  root.traverse(o => { if (o.isMesh && o !== root && !(o.material && o.material.map) && !o.userData.keep) all.push(o); });
+  for (const o of all) { const a = by.get(o.material) || []; a.push(o); by.set(o.material, a); }
+  for (const o of all) if (o.parent) o.parent.remove(o);
+  by.forEach((meshes, mat) => {
+    const geos = []; let n = 0;
+    for (const o of meshes) {
+      const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+      g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+      geos.push(g); n += g.attributes.position.count;
+    }
+    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3); let off = 0;
+    for (const g of geos) { pos.set(g.attributes.position.array, off * 3); nor.set(g.attributes.normal.array, off * 3); off += g.attributes.position.count; }
+    const out = new THREE.BufferGeometry();
+    out.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    out.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+    root.add(new THREE.Mesh(out, mat));
+  });
+}
+
+/* Кузов как выдавленный боковой профиль (l — вдоль машины, нос = +l; y — высота), затем сужение по taper(l, y). */
+function extrudeProfile(pts, width, bevel, taper) {
+  const sh = new THREE.Shape();
+  sh.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) sh.lineTo(pts[i][0], pts[i][1]);
+  const b = bevel || 0.05;
+  const geo = new THREE.ExtrudeGeometry(sh, { depth: width, bevelEnabled: true, bevelThickness: b, bevelSize: b, bevelSegments: 2, curveSegments: 4 });
+  geo.translate(0, 0, -width / 2);
+  geo.rotateY(Math.PI / 2);                          // x профиля -> -z машины (нос вперёд = -z), глубина -> ширина (x)
+  if (taper) {
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) pos.setX(i, pos.getX(i) * taper(-pos.getZ(i), pos.getY(i)));
+    pos.needsUpdate = true;
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+const clamp01 = v => Math.max(0, Math.min(1, v));
+
+function carMaterials(color) {
+  const phong = (c, sh, sp, extra) => new THREE.MeshPhongMaterial(Object.assign({ color: c, shininess: sh, specular: sp }, extra || {}));
+  return {
+    paint: phong(color, 110, 0x666666),
+    glass: phong(0x1a2530, 140, 0xaaaaaa, { transparent: true, opacity: 0.82 }),
+    carbon: phong(0x16171b, 50, 0x333333),
+    plastic: lam(0x0d0d0f),
+    chrome: phong(0xdcdcdc, 160, 0xffffff),
+    white: phong(0xf2f2f2, 80, 0x555555),
+    head: new THREE.MeshBasicMaterial({ color: 0xfff4d0 }),
+    tail: new THREE.MeshBasicMaterial({ color: 0xff1c1c }),
+    tire: lam(0x0c0c0d),
+    rim: phong(0xc4c7cc, 130, 0xffffff),
+    disc: phong(0x6d6f73, 60, 0x888888),
+    caliper: lam(0xd01010),
+    helmet: phong(0xffd400, 120, 0xffffff),
+    visor: phong(0x10161c, 150, 0xffffff)
+  };
+}
+
+/* Колесо: поворотная ось (p) -> вращение (m). Шина, диск со спицами, тормозной диск и суппорт. */
+function makeWheel(M, r, w, x, z, front, parent, wheels) {
+  const pivot = new THREE.Group(); pivot.position.set(x, r, z);
+  const spin = new THREE.Group(); pivot.add(spin);
+  const cyl = (rad, len, mat, ox) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, len, 26), mat); m.rotation.z = Math.PI / 2; m.position.x = ox || 0; spin.add(m); return m; };
+  cyl(r, w, M.tire);                               // шина
+  cyl(r * 0.66, w * 1.03, M.rim);                  // диск
+  cyl(r * 0.58, w * 1.05, M.plastic);              // ниша диска
+  const out = x > 0 ? 1 : -1;
+  for (let k = 0; k < 6; k++) {                    // спицы
+    const sp = new THREE.Group(); sp.rotation.x = k * Math.PI / 3; spin.add(sp);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w * 0.1, r * 0.54, r * 0.09), M.rim); m.position.set(out * w * 0.5, r * 0.3, 0); sp.add(m);
+  }
+  cyl(r * 0.1, w * 1.08, M.chrome);                // ступица
+  cyl(r * 0.5, w * 0.14, M.disc, -out * w * 0.2);  // тормозной диск
+  const cal = new THREE.Mesh(new THREE.BoxGeometry(w * 0.2, r * 0.3, r * 0.24), M.caliper); cal.position.set(-out * w * 0.2, r * 0.42, r * 0.05); spin.add(cal);
+  bakeGroup(spin);
+  parent.add(pivot); wheels.push({ m: spin, p: pivot, front });
+  return pivot;
+}
+
+function strut(M, a, b, rad, parent) {            // тонкая стойка между двумя точками (подвеска)
+  const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, len, 6), M.carbon);
+  m.position.set((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
+  m.rotation.order = "ZXY";                        // цилиндр вдоль Y -> направление (dx,dy,dz)
+  m.rotation.x = Math.atan2(dz, dy);
+  m.rotation.z = -Math.asin(dx / len);
+  parent.add(m);
+}
+
 function buildCarMesh(def, color, exterior) {
-  const g = new THREE.Group(), body = lam(color), dark = lam(0x161618), glass = lam(0x223344);
-  const wheels = [];
-  const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
-  const wb = def.wb;
+  const g = new THREE.Group(), M = carMaterials(color), wheels = [];
+  const L = (z) => -z;                              // l (нос +) -> z (нос -z)
+  const box = (w, h, d, x, y, l, mat, rx, rz) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, L(l)); if (rx) m.rotation.x = rx; if (rz) m.rotation.z = rz; g.add(m); return m; };
+  const part = (geo, mat, x, y, l) => { const m = new THREE.Mesh(geo, mat); m.position.set(x || 0, y || 0, L(l || 0)); g.add(m); return m; };
+  const A = def.wb / 2;
+
   if (def.cls === "gt") {
-    add(new THREE.BoxGeometry(1.9, 0.55, 4.7), body, 0, 0.55, 0);
-    add(new THREE.BoxGeometry(1.5, 0.5, 2.1), glass, 0, 1.05, 0.25);
-    add(new THREE.BoxGeometry(1.4, 0.06, 1.8), body, 0, 1.31, 0.25);
-    add(new THREE.BoxGeometry(1.9, 0.08, 0.5), dark, 0, 0.28, -2.4);                  // сплиттер
-    if (def.id === "gt3") add(new THREE.BoxGeometry(1.9, 0.06, 0.35), dark, 0, 1.2, 2.25);     // антикрыло
-    const wd = def.id === "gt3" ? 0.32 : 0.26;
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-      const w = wheelMesh(def.wheelR, wd); w.position.set(sx * 0.93, def.wheelR, sz * wb / 2); g.add(w); wheels.push({ m: w, front: sz < 0 });
+    const gt3 = def.id === "gt3";
+    // кузов и остекление
+    part(extrudeProfile([[-2.30, 0.30], [-2.36, 0.55], [-2.28, 0.86], [-1.75, 0.95], [-0.9, 0.93], [-0.25, 0.92], [0.55, 0.90], [1.35, 0.80], [1.95, 0.66], [2.30, 0.52], [2.36, 0.36], [2.25, 0.26], [1.0, 0.24], [-1.0, 0.24], [-2.1, 0.26]],
+      1.78, 0.06, (l, y) => (1 - 0.30 * Math.pow(clamp01((l - 1.5) / 0.9), 2)) * (1 - 0.20 * Math.pow(clamp01((-1.6 - l) / 0.8), 2)) * (1 - 0.10 * clamp01((y - 0.78) / 0.17))), M.paint);
+    part(extrudeProfile([[-1.30, 0.88], [-0.78, 1.28], [-0.05, 1.33], [0.45, 1.27], [1.02, 0.88]], 1.42, 0.03, (l, y) => 1 - 0.26 * clamp01((y - 0.88) / 0.45)), M.glass);
+    part(extrudeProfile([[-0.80, 1.27], [-0.05, 1.36], [0.43, 1.285], [0.38, 1.24], [-0.7, 1.24]], 1.0, 0.02, (l, y) => 1), M.paint);
+    // свет, решётка, воздухозаборники
+    for (const s of [-1, 1]) {
+      box(0.36, 0.09, 0.07, s * 0.62, 0.64, 2.27, M.head);
+      box(0.5, 0.07, 0.06, s * 0.55, 0.80, -2.33, M.tail);
+      box(0.14, 0.1, 0.08, s * 0.9, 0.42, 2.2, M.plastic);
     }
+    box(0.8, 0.14, 0.06, 0, 0.44, 2.33, M.plastic);
+    box(0.5, 0.05, 0.06, 0, 0.80, -2.34, M.tail);
+    box(1.8, 0.06, 0.05, 0, 0.34, 2.34, M.plastic);
+    // зеркала
+    for (const s of [-1, 1]) { box(0.14, 0.04, 0.05, s * 0.9, 1.0, 0.9, M.plastic); part(new THREE.BoxGeometry(0.22, 0.12, 0.1), M.paint, s * 1.02, 1.02, 0.85); box(0.03, 0.09, 0.08, s * 1.02, 1.02, 0.79, M.glass); }
+    // пороги, сплиттер, диффузор, выхлоп
+    for (const s of [-1, 1]) box(0.05, 0.09, 2.5, s * 0.93, 0.3, 0, M.plastic);
+    box(gt3 ? 2.0 : 1.9, 0.04, gt3 ? 0.5 : 0.35, 0, 0.22, 2.2, M.carbon);
+    box(1.4, 0.13, 0.5, 0, 0.3, -2.1, M.carbon);
+    if (gt3) {                                       // антикрыло, капот с жабрами
+      box(1.9, 0.05, 0.42, 0, 1.24, -2.1, M.carbon, -0.08);
+      for (const s of [-1, 1]) { box(0.04, 0.3, 0.14, s * 0.5, 1.07, -2.1, M.carbon); box(0.03, 0.22, 0.52, s * 0.95, 1.2, -2.1, M.paint); }
+      for (const s of [-1, 1]) box(0.3, 0.02, 0.5, s * 0.35, 0.83, 1.0, M.plastic);
+    } else {
+      box(1.6, 0.04, 0.2, 0, 0.99, -2.3, M.paint, -0.15);
+      for (const x of [-0.5, -0.25, 0.25, 0.5]) { const t = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.12, 10), M.chrome); t.rotation.x = Math.PI / 2; t.position.set(x, 0.4, L(-2.4)); g.add(t); }
+    }
+    bakeGroup(g);
+    const wd = gt3 ? 0.32 : 0.27;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) makeWheel(M, def.wheelR, wd, sx * 0.93, sz * A, sz < 0, g, wheels);
   } else {
-    add(new THREE.BoxGeometry(0.65, 0.42, 3.4), body, 0, 0.42, 0.2);
-    add(new THREE.BoxGeometry(0.36, 0.26, 1.8), body, 0, 0.32, -2.1);                   // нос
-    add(new THREE.BoxGeometry(0.55, 0.34, 1.7), body, -0.62, 0.36, 0.3);                // зоны радиаторов
-    add(new THREE.BoxGeometry(0.55, 0.34, 1.7), body, 0.62, 0.36, 0.3);
-    add(new THREE.BoxGeometry(1.7, 0.05, 0.55), dark, 0, 0.1, -3.05);                   // переднее крыло
-    add(new THREE.BoxGeometry(1.0, 0.06, 0.5), dark, 0, 1.0, 2.0);                      // заднее крыло
-    add(new THREE.BoxGeometry(0.05, 0.55, 0.55), dark, -0.5, 0.78, 2.0);
-    add(new THREE.BoxGeometry(0.05, 0.55, 0.55), dark, 0.5, 0.78, 2.0);
-    add(new THREE.SphereGeometry(0.15, 10, 8), lam(0xffd400), 0, 0.78, 0.35);         // шлем
-    add(new THREE.BoxGeometry(0.06, 0.06, 0.9), dark, 0, 0.98, 0.0);                    // хало
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-      const wd = sz < 0 ? 0.36 : 0.46, r = def.wheelR;
-      const w = wheelMesh(r, wd); w.position.set(sx * 0.82, r, sz * wb / 2 + (sz > 0 ? -0.3 : 0.0)); g.add(w); wheels.push({ m: w, front: sz < 0 });
+    const tipL = A + 1.05, tailL = -(A + 0.85), r = def.wheelR;
+    // монокок, мотор, боковые зоны
+    part(extrudeProfile([[tailL, 0.30], [tailL + 0.5, 0.42], [-1.5, 0.60], [-1.0, 0.80], [-0.8, 0.80], [-0.7, 0.60], [-0.35, 0.58], [0.15, 0.58], [0.45, 0.46], [A - 0.3, 0.40], [tipL, 0.30], [tipL, 0.16], [A, 0.12], [-A, 0.12], [tailL, 0.16]],
+      0.42, 0.05, (l, y) => (1 - 0.6 * clamp01((l - (A - 0.3)) / (tipL - A + 0.3))) * (1 - 0.35 * clamp01((y - 0.6) / 0.2)) * (1 - 0.3 * clamp01((tailL + 0.8 - l) / 0.8))), M.paint);
+    for (const s of [-1, 1]) {
+      part(extrudeProfile([[0.95, 0.14], [0.95, 0.40], [0.4, 0.52], [-0.8, 0.46], [-1.6, 0.30], [-1.65, 0.14]], 0.34, 0.05, (l, y) => 1 - 0.45 * clamp01((-0.5 - l) / 1.2)), M.paint, s * 0.5, 0, 0);
+      box(0.14, 0.06, 0.05, s * 0.5, 0.7, 0.35, M.plastic, 0, 0);            // стойка зеркала
+      part(new THREE.BoxGeometry(0.2, 0.1, 0.04), M.paint, s * 0.62, 0.72, 0.38);
+      box(0.18, 0.08, 0.02, s * 0.62, 0.72, 0.355, M.glass);
     }
+    box(1.5, 0.03, 3.7, 0, 0.09, 0, M.carbon);                                // днище
+    // переднее крыло: два элемента + концевые пластины
+    box(1.9, 0.025, 0.42, 0, 0.1, tipL - 0.05, M.carbon);
+    box(1.9, 0.02, 0.24, 0, 0.17, tipL - 0.2, M.carbon, 0.15);
+    box(0.06, 0.16, 0.3, 0, 0.2, tipL - 0.3, M.carbon);
+    for (const s of [-1, 1]) box(0.025, 0.2, 0.6, s * 0.95, 0.17, tipL - 0.1, M.paint);
+    // заднее крыло, пластины, балка, стойка, фонарь
+    box(1.0, 0.03, 0.36, 0, 0.95, tailL + 0.15, M.carbon, -0.05);
+    box(1.0, 0.025, 0.22, 0, 1.03, tailL + 0.1, M.carbon, -0.22);
+    for (const s of [-1, 1]) box(0.03, 0.36, 0.55, s * 0.52, 0.85, tailL + 0.15, M.paint);
+    box(0.06, 0.5, 0.08, 0, 0.66, tailL + 0.2, M.carbon);
+    box(0.8, 0.02, 0.2, 0, 0.42, tailL + 0.1, M.carbon);
+    box(0.12, 0.05, 0.03, 0, 0.5, tailL - 0.02, M.tail);
+    // кабина: шлем, визор, хало, воздухозаборник
+    part(new THREE.SphereGeometry(0.15, 14, 10), M.helmet, 0, 0.78, -0.05);
+    box(0.2, 0.06, 0.12, 0, 0.8, 0.1, M.visor);
+    box(0.04, 0.04, 0.9, 0.17, 0.88, 0.05, M.carbon, 0.0); box(0.04, 0.04, 0.9, -0.17, 0.88, 0.05, M.carbon, 0.0);
+    box(0.34, 0.04, 0.04, 0, 0.92, 0.45, M.carbon);
+    box(0.04, 0.3, 0.04, 0, 0.77, 0.45, M.carbon, 0.45);
+    box(0.3, 0.18, 0.12, 0, 0.72, -0.78, M.plastic);
+    // подвеска
+    const tr = 0.82;
+    for (const sz of [-1, 1]) for (const sx of [-1, 1]) {
+      const l = sz * A;
+      strut(M, [sx * 0.25, 0.3, l + 0.25], [sx * (tr - 0.08), r, l], 0.012, g);
+      strut(M, [sx * 0.25, 0.3, l - 0.25], [sx * (tr - 0.08), r, l], 0.012, g);
+      strut(M, [sx * 0.25, 0.18, l], [sx * (tr - 0.08), r * 0.6, l], 0.012, g);
+    }
+    bakeGroup(g);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) makeWheel(M, r, sz < 0 ? 0.36 : 0.46, sx * tr, sz * A, sz < 0, g, wheels);
   }
   g.userData.wheels = wheels;
   return g;
@@ -328,9 +473,9 @@ function renderFrame(playerCar, cars, S, dt, vr) {
     if (c === playerCar) continue;
     const mesh = R.ai[k++]; if (!mesh) continue;
     applyCarTransform(mesh, c, now);
-    for (const w of mesh.userData.wheels) { w.m.rotation.x -= c.vx * dt / c.def.wheelR; if (w.front) w.m.rotation.y = -c.delta * 0.8; }
+    for (const w of mesh.userData.wheels) { w.m.rotation.x -= c.vx * dt / c.def.wheelR; if (w.front) (w.p || w.m).rotation.y = -c.delta * 0.8; }
   }
-  if (chase && R.playerExt) for (const w of R.playerExt.userData.wheels) { w.m.rotation.x -= playerCar.vx * dt / playerCar.def.wheelR; if (w.front) w.m.rotation.y = -playerCar.delta * 0.8; }
+  if (chase && R.playerExt) for (const w of R.playerExt.userData.wheels) { w.m.rotation.x -= playerCar.vx * dt / playerCar.def.wheelR; if (w.front) (w.p || w.m).rotation.y = -playerCar.delta * 0.8; }
 
   const p = R.player.position;
   R.grass.position.set(p.x, -0.03, p.z);
