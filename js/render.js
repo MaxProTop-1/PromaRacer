@@ -88,8 +88,26 @@ function wallStrip(side, h, tex, vTile, scene) {
   scene.add(m); return m;
 }
 
+const hexCss = h => "#" + ("000000" + h.toString(16)).slice(-6);
+function shadeHex(h, f) { const r = Math.min(255, ((h >> 16) & 255) * f | 0), g = Math.min(255, ((h >> 8) & 255) * f | 0), b = Math.min(255, (h & 255) * f | 0); return (r << 16) | (g << 8) | b; }
+
+/* Небо, туман и земля под выбранную трассу. */
+function applyEnv(env) {
+  env = env || { sky: SKY, fog: 0xb9d3e6, ground: 0x3f7a2c };
+  R.scene.background = new THREE.Color(env.sky);
+  R.scene.fog = new THREE.Fog(env.fog, 150, 1300);
+  const gt = canvasTex(64, 64, (g, w, h) => {
+    g.fillStyle = hexCss(env.ground); g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 500; i++) { g.fillStyle = hexCss(shadeHex(env.ground, Math.random() < 0.5 ? 0.88 : 1.12)); g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+  });
+  gt.repeat.set(R.GRASS / R.TILE, R.GRASS / R.TILE);
+  R.grassTex = gt; R.grass.material.map = gt; R.grass.material.needsUpdate = true;
+}
+
 function buildWorld() {
   initRender();
+  const env = (TRACK.info && TRACK.info.env) || null;
+  applyEnv(env);
   if (R.world) R.scene.remove(R.world);
   const W = R.world = new THREE.Group(); R.scene.add(W);
   const tile = (len) => TRACK.L / Math.max(1, Math.round(TRACK.L / len));
@@ -101,7 +119,12 @@ function buildWorld() {
   });
   const kerbTex = canvasTex(16, 32, (g, w, h) => { g.fillStyle = "#d01010"; g.fillRect(0, 0, w, h / 2); g.fillStyle = "#f4f4f4"; g.fillRect(0, h / 2, w, h / 2); });
   const runTex = canvasTex(32, 32, (g, w, h) => { g.fillStyle = "#5b5b60"; g.fillRect(0, 0, w, h); for (let i = 0; i < 80; i++) { g.fillStyle = "rgba(255,255,255,0.05)"; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); } });
-  const wallTex = canvasTex(64, 32, (g, w, h) => { g.fillStyle = "#e8e8e8"; g.fillRect(0, 0, w, h); g.fillStyle = "#d01010"; g.fillRect(0, 0, w / 2, h); g.fillStyle = "#222"; g.fillRect(0, h - 4, w, 4); });
+  const wk = env ? env.wall : "armco";
+  const wallTex = canvasTex(64, 32, (g, w, h) => {
+    if (wk === "concrete") { g.fillStyle = "#a9abaf"; g.fillRect(0, 0, w, h); g.fillStyle = "#f2f2f2"; g.fillRect(0, h * 0.35, w, h * 0.2); g.fillStyle = "#d01010"; g.fillRect(0, h * 0.55, w / 2, h * 0.2); g.fillStyle = "#6b6d71"; for (let x = 0; x < w; x += 16) g.fillRect(x, 0, 1, h); }
+    else if (wk === "tire") { for (let y = 0; y < 2; y++) for (let x = 0; x < 4; x++) { g.fillStyle = (x + y) % 2 ? "#f2f2f2" : "#16161a"; g.fillRect(x * 16, y * 16, 15, 15); } }
+    else { g.fillStyle = "#e8e8e8"; g.fillRect(0, 0, w, h); g.fillStyle = "#d01010"; g.fillRect(0, 0, w / 2, h); g.fillStyle = "#222"; g.fillRect(0, h - 4, w, 4); }
+  });
   const e = ROAD_W / 2;
   trackStrip(-e, e, 0.01, roadTex, tile(12), W);
   trackStrip(e, e + KERB_W, 0.02, kerbTex, tile(6), W);
@@ -127,26 +150,47 @@ function buildWorld() {
   const ts = trackAt(80); stand.position.set(ts.x + Math.cos(ts.h) * (WALL_D + 10), 4.5, ts.z + Math.sin(ts.h) * (WALL_D + 10)); stand.rotation.y = -ts.h;
   W.add(stand);
 
-  // деревья вдали от трассы
-  const count = 1500;
-  const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.25, 0.35, 3, 6), lam(0x5a3b22), count);
-  const crown = new THREE.InstancedMesh(new THREE.ConeGeometry(2.2, 7, 7), lam(0x1f5a2a), count);
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3();
+  // окружение: лес, пальмы или городская застройка
+  const kind = env ? (env.city ? "city" : env.trees) : "pine";
   let seed = 4242; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
-  let placed = 0;
-  for (let tries = 0; tries < 6000 && placed < count; tries++) {
-    const i = Math.floor(rnd() * TRACK.N), side = rnd() < 0.5 ? -1 : 1, off = side * (WALL_D + 6 + rnd() * 110);
-    const x = TRACK.X[i] + Math.cos(TRACK.H[i]) * off, z = TRACK.Z[i] + Math.sin(TRACK.H[i]) * off;
-    let ok = true;
-    for (let k = 0; k < TRACK.N; k += 3) if (Math.hypot(TRACK.X[k] - x, TRACK.Z[k] - z) < WALL_D + 5) { ok = false; break; }
-    if (!ok) continue;
-    const s = 0.8 + rnd() * 0.9; sc.set(s, s, s);
-    m4.compose(p.set(x, 1.5 * s, z), q, sc); trunk.setMatrixAt(placed, m4);
-    m4.compose(p.set(x, 6.5 * s, z), q, sc); crown.setMatrixAt(placed, m4);
-    placed++;
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3();
+  const farFrom = (x, z, d) => { for (let k = 0; k < TRACK.N; k += 3) if (Math.hypot(TRACK.X[k] - x, TRACK.Z[k] - z) < d) return false; return true; };
+  const spot = (minOff, span) => {
+    const i = Math.floor(rnd() * TRACK.N), side = rnd() < 0.5 ? -1 : 1, off = side * (WALL_D + minOff + rnd() * span);
+    return [TRACK.X[i] + Math.cos(TRACK.H[i]) * off, TRACK.Z[i] + Math.sin(TRACK.H[i]) * off];
+  };
+  if (kind === "pine" || kind === "palm") {
+    const count = kind === "pine" ? 1500 : 500, palm = kind === "palm";
+    const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(palm ? 0.18 : 0.25, 0.35, palm ? 7 : 3, 6), lam(palm ? 0x8a6a45 : 0x5a3b22), count);
+    const crown = new THREE.InstancedMesh(palm ? new THREE.SphereGeometry(2.4, 7, 5) : new THREE.ConeGeometry(2.2, 7, 7), lam(palm ? 0x3f9a3a : 0x1f5a2a), count);
+    let placed = 0;
+    for (let tries = 0; tries < 6000 && placed < count; tries++) {
+      const [x, z] = spot(6, palm ? 60 : 110);
+      if (!farFrom(x, z, WALL_D + 5)) continue;
+      const s = 0.8 + rnd() * 0.9; sc.set(s, s, s);
+      m4.compose(p.set(x, (palm ? 3.5 : 1.5) * s, z), q, sc); trunk.setMatrixAt(placed, m4);
+      if (palm) sc.set(s, s * 0.45, s);
+      m4.compose(p.set(x, (palm ? 7.2 : 6.5) * s, z), q, sc); crown.setMatrixAt(placed, m4);
+      placed++;
+    }
+    trunk.count = crown.count = placed;
+    W.add(trunk, crown);
+  } else if (kind === "city") {
+    const count = 420, winTex = canvasTex(64, 128, (g, w, h) => {
+      g.fillStyle = "#9a9da3"; g.fillRect(0, 0, w, h);
+      for (let y = 4; y < h - 6; y += 10) for (let x = 5; x < w - 6; x += 10) { g.fillStyle = rnd() < 0.2 ? "#ffe9a0" : "#27384a"; g.fillRect(x, y, 6, 6); }
+    });
+    const bld = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), lam(0xffffff, { map: winTex }), count);
+    let placed = 0;
+    for (let tries = 0; tries < 4000 && placed < count; tries++) {
+      const [x, z] = spot(4, 70);
+      if (!farFrom(x, z, WALL_D + 3)) continue;
+      const w = 14 + rnd() * 22, d = 14 + rnd() * 22, h = 18 + rnd() * rnd() * 110;
+      sc.set(w, h, d); m4.compose(p.set(x, h / 2, z), q, sc); bld.setMatrixAt(placed++, m4);
+    }
+    bld.count = placed;
+    W.add(bld);
   }
-  trunk.count = crown.count = placed;
-  W.add(trunk, crown);
 }
 
 /* ---------- Машины ---------- */

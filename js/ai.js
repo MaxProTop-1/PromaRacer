@@ -21,7 +21,7 @@ function speedProfile(def, skill) {
   for (let pass = 0; pass < 3; pass++) {
     for (let i = 2 * N - 1; i >= 0; i--) {              // торможение: назад по трассе
       const a = i % N, b = (i + 1) % N, vb = v[b];
-      const abr = mu * (GRAV + aeroK * vb * vb) * 0.92 + dragK * vb * vb;
+      const abr = mu * (GRAV + aeroK * vb * vb) * (def.cls === "gt" ? 0.7 : 0.92) + dragK * vb * vb;
       v[a] = Math.min(v[a], Math.sqrt(vb * vb + 2 * abr * ds));
     }
     for (let i = 0; i < 2 * N; i++) {                   // разгон: вперёд по трассе

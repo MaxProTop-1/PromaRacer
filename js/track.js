@@ -3,12 +3,38 @@
    по длине дуги. Кривизна K > 0 — правый поворот; трасса идёт по часовой стрелке. */
 const ROAD_W = 12, KERB_W = 1.2, RUNOFF = 12, WALL_D = ROAD_W / 2 + KERB_W + RUNOFF;
 
+/* Трассы по опорным точкам (метры, по часовой стрелке, старт на прямой в начале списка).
+   env — оформление окружения: sky, fog, ground, trees ("pine"|"palm"|"none"), city, wall. */
 const TRACKS = [
   { id: "ring",   name: "Proma Ring (длинная, быстрая)", seed: 7,  R0: 450, sx: 1.6, minR: 42 },
-  { id: "sprint", name: "Proma Sprint (короткая, техничная)", seed: 21, R0: 300, sx: 1.25, minR: 32 }
+  { id: "sprint", name: "Proma Sprint (короткая, техничная)", seed: 21, R0: 300, sx: 1.25, minR: 32 },
+  { id: "forest", name: "Proma Forest (лес, быстрые повороты)", minR: 30,
+    pts: [[-450,-300],[0,-300],[500,-300],[800,-260],[930,-110],[900,40],[790,90],[640,60],[540,150],[540,330],[420,450],[170,440],[0,500],[-230,470],[-420,350],[-560,150],[-640,-60],[-600,-220]],
+    env: { sky: 0x9cc4e8, fog: 0xb9d3e6, ground: 0x2f5a2a, trees: "pine", city: false, wall: "armco" } },
+  { id: "city", name: "Proma Streets (городская, стены)", minR: 18,
+    pts: [[-200,-200],[0,-200],[250,-200],[330,-150],[350,-50],[300,40],[200,60],[140,130],[170,230],[260,290],[250,390],[130,430],[0,380],[-60,280],[-170,260],[-260,320],[-370,280],[-380,150],[-300,80],[-310,-40],[-290,-140]],
+    env: { sky: 0xa9c7e3, fog: 0xc3d3e0, ground: 0x6d6f73, trees: "none", city: true, wall: "concrete" } },
+  { id: "coast", name: "Proma Coast (побережье, пальмы)", minR: 28,
+    pts: [[-500,-250],[-100,-250],[400,-250],[700,-220],[860,-100],[850,60],[700,130],[560,100],[450,170],[480,330],[380,430],[150,420],[-50,350],[-250,420],[-480,380],[-640,230],[-660,20],[-620,-150]],
+    env: { sky: 0x8fd0f0, fog: 0xcfe6f2, ground: 0xc9b27a, trees: "palm", city: false, wall: "tire" } }
 ];
 
 const TRACK = { N: 0, L: 0, DS: 2, X: null, Z: null, H: null, K: null, minR: 0, info: null };
+
+/* Замкнутый центростремительный Catmull-Rom по опорным точкам. */
+function splineDense(pts, M) {
+  const n = pts.length, P = [];
+  const at = i => pts[((i % n) + n) % n];
+  const per = Math.ceil(M / n);
+  for (let i = 0; i < n; i++) {
+    const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
+    for (let k = 0; k < per; k++) {
+      const t = k / per, t2 = t * t, t3 = t2 * t;
+      P.push([0, 1].map(d => 0.5 * ((2 * p1[d]) + (-p0[d] + p2[d]) * t + (2 * p0[d] - 5 * p1[d] + 4 * p2[d] - p3[d]) * t2 + (-p0[d] + 3 * p1[d] - 3 * p2[d] + p3[d]) * t3)));
+    }
+  }
+  return P;
+}
 
 function buildTrack(def) {
   let seed = def.seed >>> 0;
@@ -68,6 +94,17 @@ function buildTrack(def) {
     return { N, L, ds, X, Z, H, K: Ks, minR: 1 / kmax };
   }
 
+  if (def.pts) {
+    let P = splineDense(def.pts, 6000);
+    for (let pass = 0; pass < 3; pass++) {           // сглаживание: убирает изломы сплайна, кривизна меняется плавно
+      const M = P.length, Q = new Array(M), w = 45;
+      for (let i = 0; i < M; i++) { let x = 0, z = 0; for (let o = -w; o <= w; o++) { const q = P[(i + o + M) % M]; x += q[0]; z += q[1]; } Q[i] = [x / (2 * w + 1), z / (2 * w + 1)]; }
+      P = Q;
+    }
+    const t = resample(P);
+    Object.assign(TRACK, { N: t.N, L: t.L, DS: t.ds, X: t.X, Z: t.Z, H: t.H, K: t.K, minR: t.minR, info: def });
+    return TRACK;
+  }
   // подбор амплитуды: минимальный радиус должен получиться равным def.minR
   let lo = 0, hi = 3, best = null;
   for (let it = 0; it < 14; it++) {
