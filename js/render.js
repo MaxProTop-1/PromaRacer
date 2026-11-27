@@ -12,17 +12,49 @@ function canvasTex(w, h, draw) {
 }
 const lam = (color, extra) => new THREE.MeshLambertMaterial(Object.assign({ color }, extra || {}));
 
+/* Купол неба: градиент от зенита к горизонту и солнечное свечение. Он же служит картой отражений для кузова. */
+function skyCanvas(env) {
+  const top = (env && env.sky) || SKY, hor = (env && env.fog) || 0xb9d3e6;
+  return canvasTex(512, 256, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, 0, h);
+    gr.addColorStop(0, hexCss(shadeHex(top, 0.62))); gr.addColorStop(0.5, hexCss(top)); gr.addColorStop(0.62, hexCss(hor)); gr.addColorStop(1, hexCss(shadeHex(hor, 0.75)));
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    const sx = w * 0.30, sy = h * 0.34, rg = g.createRadialGradient(sx, sy, 0, sx, sy, h * 0.5);
+    rg.addColorStop(0, "rgba(255,248,220,1)"); rg.addColorStop(0.06, "rgba(255,244,210,0.95)"); rg.addColorStop(0.25, "rgba(255,230,170,0.35)"); rg.addColorStop(1, "rgba(255,230,170,0)");
+    g.fillStyle = rg; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 26; i++) { g.fillStyle = "rgba(255,255,255," + (0.05 + Math.random() * 0.1) + ")"; g.beginPath(); g.ellipse(Math.random() * w, h * (0.25 + Math.random() * 0.3), 20 + Math.random() * 50, 3 + Math.random() * 6, 0, 0, 7); g.fill(); }
+  });
+}
+function makeSky(env) {
+  if (R.sky) { R.scene.remove(R.sky); R.sky.material.map.dispose(); }
+  const tex = skyCanvas(env); tex.wrapS = THREE.ClampToEdgeWrapping; tex.repeat.set(1, 1);
+  R.sky = new THREE.Mesh(new THREE.SphereGeometry(2500, 24, 12), new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false }));
+  R.sky.renderOrder = -10; R.scene.add(R.sky);
+  try {                                             // отражения на кузове
+    const eq = skyCanvas(env); eq.mapping = THREE.EquirectangularReflectionMapping;
+    if (!R.pmrem) R.pmrem = new THREE.PMREMGenerator(R.renderer);
+    if (R.env) R.env.dispose();
+    R.env = R.pmrem.fromEquirectangular(eq).texture;
+  } catch (e) { R.env = null; }
+}
+
 function initRender() {
   if (R.inited) return;
   R.inited = true;
   R.renderer = new THREE.WebGLRenderer({ antialias: true });
+  R.renderer.shadowMap.enabled = true; R.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   R.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   document.body.appendChild(R.renderer.domElement);
   R.scene = new THREE.Scene();
   R.scene.background = new THREE.Color(SKY);
   R.scene.fog = new THREE.Fog(SKY, 150, 1300);
   R.scene.add(new THREE.HemisphereLight(0xffffff, 0x4a5a3a, 0.95));
-  const sun = new THREE.DirectionalLight(0xfff2d8, 0.8); sun.position.set(-60, 120, 40); R.scene.add(sun);
+  const sun = R.sun = new THREE.DirectionalLight(0xfff2d8, 0.85); sun.position.set(-60, 120, 40);
+  sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0006;
+  Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 10, far: 400 });
+  R.scene.add(sun, sun.target);
+  R.sunDir = [-60, 120, 40];
+  makeSky();
 
   R.player = new THREE.Group(); R.scene.add(R.player);
   R.head = new THREE.Group(); R.player.add(R.head);
@@ -96,6 +128,7 @@ function applyEnv(env) {
   env = env || { sky: SKY, fog: 0xb9d3e6, ground: 0x3f7a2c };
   R.scene.background = new THREE.Color(env.sky);
   R.scene.fog = new THREE.Fog(env.fog, 150, 1300);
+  makeSky(env);
   const gt = canvasTex(64, 64, (g, w, h) => {
     g.fillStyle = hexCss(env.ground); g.fillRect(0, 0, w, h);
     for (let i = 0; i < 500; i++) { g.fillStyle = hexCss(shadeHex(env.ground, Math.random() < 0.5 ? 0.88 : 1.12)); g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
@@ -151,6 +184,7 @@ function buildWorld() {
   W.add(stand);
 
   // окружение: лес, пальмы или городская застройка
+  W.traverse(o => { if (o.isMesh) o.receiveShadow = true; });
   const kind = env ? (env.city ? "city" : env.trees) : "pine";
   let seed = 4242; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3();
@@ -249,7 +283,7 @@ const clamp01 = v => Math.max(0, Math.min(1, v));
 function carMaterials(color) {
   const phong = (c, sh, sp, extra) => new THREE.MeshPhongMaterial(Object.assign({ color: c, shininess: sh, specular: sp }, extra || {}));
   return {
-    paint: phong(color, 110, 0x666666),
+    paint: R.env ? new THREE.MeshStandardMaterial({ color, metalness: 0.55, roughness: 0.28, envMap: R.env, envMapIntensity: 1.1 }) : phong(color, 110, 0x666666),
     glass: phong(0x1a2530, 140, 0xaaaaaa, { transparent: true, opacity: 0.82 }),
     carbon: phong(0x16171b, 50, 0x333333),
     plastic: lam(0x0d0d0f),
@@ -379,6 +413,7 @@ function buildCarMesh(def, color, exterior) {
     bakeGroup(g);
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) makeWheel(M, r, sz < 0 ? 0.36 : 0.46, sx * tr, sz * A, sz < 0, g, wheels);
   }
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
   g.userData.wheels = wheels;
   return g;
 }
@@ -523,6 +558,8 @@ function renderFrame(playerCar, cars, S, dt, vr) {
 
   const p = R.player.position;
   R.grass.position.set(p.x, -0.03, p.z);
+  if (R.sky) R.sky.position.set(p.x, 0, p.z);
+  if (R.sun) { R.sun.target.position.set(p.x, 0, p.z); R.sun.position.set(p.x + R.sunDir[0], R.sunDir[1], p.z + R.sunDir[2]); R.sun.target.updateMatrixWorld(); }
   R.grassTex.offset.set(p.x / R.TILE, -p.z / R.TILE);
 
   drawHud(S, now);
