@@ -6,10 +6,10 @@
 const _profCache = {};
 
 function speedProfile(def, skill) {
-  const key = def.id + "|" + TRACK.info.id + "|" + skill;
+  const key = def.id + "|" + TRACK.info.id + "|" + skill + "|" + WET;
   if (_profCache[key]) return _profCache[key];
   const N = TRACK.N, ds = TRACK.DS, m = def.mass;
-  const mu = def.mu * 0.9 * skill;                     // запас по шинам и навыку
+  const mu = def.mu * 0.9 * skill * (1 - WET * (def.cls === "formula" ? 0.40 : 0.52));                     // запас по шинам и навыку
   const aeroK = 0.5 * RHO * def.ClA / m;                // прижим на единицу массы на (м/с)^2
   const dragK = 0.5 * RHO * def.CdA / m;
   const vmax = wheelRpm({ vx: 1, def }, def.gearMax) > 0 ? def.redline * Math.PI / 30 * def.wheelR / (def.ratios[def.gearMax - 1] * def.final) : 100;
@@ -21,7 +21,7 @@ function speedProfile(def, skill) {
   for (let pass = 0; pass < 3; pass++) {
     for (let i = 2 * N - 1; i >= 0; i--) {              // торможение: назад по трассе
       const a = i % N, b = (i + 1) % N, vb = v[b];
-      const abr = mu * (GRAV + aeroK * vb * vb) * (def.cls === "gt" ? 0.7 : 0.92) + dragK * vb * vb;
+      const abr = mu * (GRAV + aeroK * vb * vb) * (def.cls === "gt" ? 0.7 : 0.92) * (1 - WET * 0.4) + dragK * vb * vb;
       v[a] = Math.min(v[a], Math.sqrt(vb * vb + 2 * abr * ds));
     }
     for (let i = 0; i < 2 * N; i++) {                   // разгон: вперёд по трассе
@@ -48,16 +48,18 @@ function aiDrive(c, ai, dt) {
   const psiDes = Math.atan2(line - c.d, Ld);
   const understeer = 1 + 0.0009 * v * v * (D.ClA > 1 ? 0.35 : 1);
   let delta = L * kAhead * understeer + 1.5 * (psiDes - c.psi) + 0.35 * (c.r * 0 );
-  delta = Math.max(-D.steerLock, Math.min(D.steerLock, delta));
+  const dLim = D.steerLock;
+  delta = Math.max(-dLim, Math.min(dLim, delta));
 
   const N = TRACK.N, idx = Math.floor((((c.s + 0.25 * v) % TRACK.L) + TRACK.L) % TRACK.L / TRACK.DS) % N;
   const vt = ai.prof[idx];
   const err = vt - c.vx;
   let gas = Math.max(0, Math.min(1, err / 3 + 0.3));
-  let brake = Math.max(0, Math.min(1, -err / 4));
+  let brake = Math.max(0, Math.min(WET ? 0.55 : 1, -err / (WET ? 1.8 : 4)));
   // антипробуксовка и стабилизация: скольжение задней оси — сразу убираем газ
   const slideR = Math.abs(c.alphaR);
-  if (slideR > 0.07) gas *= Math.max(0, 1 - (slideR - 0.07) * 9);
+  const sl0 = WET ? 0.03 : 0.07;
+  if (slideR > sl0) gas *= Math.max(0, 1 - (slideR - sl0) * 9);
   if (c.spinR) gas *= 0.5;
   if (Math.abs(c.alphaF) > 0.18) { gas *= 0.5; brake = Math.max(brake, 0.15); }
   if (Math.abs(c.d) > ROAD_W / 2 + 1.5) { gas *= 0.6; }

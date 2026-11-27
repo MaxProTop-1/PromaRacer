@@ -126,15 +126,40 @@ function shadeHex(h, f) { const r = Math.min(255, ((h >> 16) & 255) * f | 0), g 
 /* Небо, туман и земля под выбранную трассу. */
 function applyEnv(env) {
   env = env || { sky: SKY, fog: 0xb9d3e6, ground: 0x3f7a2c };
+  if (WET) env = Object.assign({}, env, { sky: shadeHex(0x7d8794, 1), fog: 0x8c949e, ground: shadeHex(env.ground, 0.7) });
   R.scene.background = new THREE.Color(env.sky);
-  R.scene.fog = new THREE.Fog(env.fog, 150, 1300);
+  R.scene.fog = new THREE.Fog(env.fog, WET ? 60 : 150, WET ? 650 : 1300);
+  if (R.sun) R.sun.intensity = WET ? 0.25 : 0.85;
   makeSky(env);
+  makeRain();
   const gt = canvasTex(64, 64, (g, w, h) => {
     g.fillStyle = hexCss(env.ground); g.fillRect(0, 0, w, h);
     for (let i = 0; i < 500; i++) { g.fillStyle = hexCss(shadeHex(env.ground, Math.random() < 0.5 ? 0.88 : 1.12)); g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
   });
   gt.repeat.set(R.GRASS / R.TILE, R.GRASS / R.TILE);
   R.grassTex = gt; R.grass.material.map = gt; R.grass.material.needsUpdate = true;
+}
+
+/* Дождь: полосы, падающие вокруг камеры; скорость машины наклоняет их назад. */
+function makeRain() {
+  if (R.rain) { R.scene.remove(R.rain); R.rain = null; }
+  if (!WET) return;
+  const n = 1800, pos = new Float32Array(n * 6);
+  R.rainP = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) R.rainP.set([(Math.random() - 0.5) * 60, Math.random() * 30, (Math.random() - 0.5) * 60], i * 3);
+  const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  R.rain = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xc9d4e0, transparent: true, opacity: 0.45, fog: false }));
+  R.rain.frustumCulled = false; R.scene.add(R.rain);
+}
+function updateRain(p, v, dt) {
+  if (!R.rain) return;
+  const P = R.rainP, pos = R.rain.geometry.attributes.position.array, n = P.length / 3, fall = 14, slant = v * 0.04;
+  for (let i = 0; i < n; i++) {
+    let y = P[i * 3 + 1] - fall * dt; if (y < 0) y += 30; P[i * 3 + 1] = y;
+    const x = p.x + P[i * 3], z = p.z + P[i * 3 + 2];
+    pos.set([x, y, z, x, y + 0.6, z + slant * 0.15], i * 6);
+  }
+  R.rain.geometry.attributes.position.needsUpdate = true;
 }
 
 function buildWorld() {
@@ -145,7 +170,7 @@ function buildWorld() {
   const W = R.world = new THREE.Group(); R.scene.add(W);
   const tile = (len) => TRACK.L / Math.max(1, Math.round(TRACK.L / len));
   const roadTex = canvasTex(128, 256, (g, w, h) => {
-    g.fillStyle = "#3b3b3f"; g.fillRect(0, 0, w, h);
+    g.fillStyle = WET ? "#26272b" : "#3b3b3f"; g.fillRect(0, 0, w, h);
     for (let i = 0; i < 1800; i++) { const l = i % 2 ? 255 : 0; g.fillStyle = "rgba(" + l + "," + l + "," + l + ",0.04)"; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
     g.fillStyle = "#f2f2f2"; g.fillRect(w * 0.03, 0, w * 0.025, h); g.fillRect(w * 0.945, 0, w * 0.025, h);
     g.fillStyle = "rgba(0,0,0,0.25)"; g.fillRect(w * 0.30, 0, w * 0.40, h);            // гоночная линия темнее
@@ -559,6 +584,7 @@ function renderFrame(playerCar, cars, S, dt, vr) {
   const p = R.player.position;
   R.grass.position.set(p.x, -0.03, p.z);
   if (R.sky) R.sky.position.set(p.x, 0, p.z);
+  updateRain(p, playerCar.vx, dt);
   if (R.sun) { R.sun.target.position.set(p.x, 0, p.z); R.sun.position.set(p.x + R.sunDir[0], R.sunDir[1], p.z + R.sunDir[2]); R.sun.target.updateMatrixWorld(); }
   R.grassTex.offset.set(p.x / R.TILE, -p.z / R.TILE);
 
