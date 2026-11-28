@@ -26,6 +26,7 @@ function onKey(e, down) {
   else if (k === "n") { if (down) input.pendingAuto = true; }
   else if (k === "Escape") { if (down) input.pendingPause = true; }
   else if (k === " ") { if (down) input.pendingAssist = true; }
+  else if (k === "Shift") input.hb = down ? 1 : 0;
   else if (down && k.length === 1 && STEER_KEYS.indexOf(k) >= 0) {
     input.steerTarget = (STEER_KEYS.indexOf(k) - 6) / 6;
     input.steerSeen = true;
@@ -155,6 +156,7 @@ function setupTouchUI() {
   holdButton("tBrake", () => { input.brake = 1; input.lastKey = "touch:тормоз"; }, () => { input.brake = 0; });
   holdButton("tL", () => { input.kbLeft = 1; }, () => { input.kbLeft = 0; });
   holdButton("tR", () => { input.kbRight = 1; }, () => { input.kbRight = 0; });
+  holdButton("tHand", () => { input.hb = 1; }, () => { input.hb = 0; });
   holdButton("tUp", () => { input.pendingGear = 1; });
   holdButton("tDown", () => { input.pendingGear = -1; });
   holdButton("tPause", () => { input.pendingPause = true; });

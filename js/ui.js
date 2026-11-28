@@ -148,7 +148,7 @@ function rSettings() {
     <h3>Cardputer</h3><div id="mon"></div>
     <div class="small" style="margin-top:6px">Сначала подключи «PromaRacer Wheel» в Bluetooth телефона.</div>
     <h3>Клавиатура</h3>
-    <div class="small">W газ · S тормоз · A / D руль · E / Q передачи · N авто/ручная · R на трассу · V вид · Пробел помощники · Esc пауза · Enter выход после финиша.<br>Cardputer: 9 газ · o тормоз · 0 / p передачи · руль наклоном.</div>
+    <div class="small">W газ · S тормоз · A / D руль · E / Q передачи · N авто/ручная · R на трассу · V вид · Пробел помощники · Shift ручник (свободная езда) · Esc пауза · Enter выход после финиша.<br>Cardputer: 9 газ · o тормоз · 0 / p передачи · руль наклоном.</div>
   </div></div><div class="checker"></div>`;
   updateMon();
 }
@@ -171,9 +171,9 @@ function rPlay() {
 /* ---------- Выбор режима (офлайн) ---------- */
 function setupFields(cfg, scope, edit) {
   const row = (title, items, key) => `<h3>${title}</h3>` + (edit ? optRow(items, key, cfg[key], scope) : `<div class="small" style="color:#fff">${items.find(i => i.v === cfg[key]) ? items.find(i => i.v === cfg[key]).l : ""}</div>`);
-  return row("Режим", [{ l: "🏁 Гонка", v: "race" }, { l: "⏱ На время (без столкновений)", v: "time" }], "mode") +
-    row("Трасса", TRACKS.map((t, i) => ({ l: t.name, v: i })), "trackIdx") +
-    row("Круги", [1, 3, 5, 10].map(n => ({ l: n + " кр.", v: n })), "laps");
+  return row("Режим", [{ l: "🏁 Гонка", v: "race" }, { l: "⏱ На время (без столкновений)", v: "time" }].concat(scope === "g" ? [{ l: "🏙 Свободная езда (город, дрифт)", v: "free" }] : []), "mode") +
+    (cfg.mode === "free" ? "" : row("Трасса", TRACKS.map((t, i) => ({ l: t.name, v: i })), "trackIdx") +
+    row("Круги", [1, 3, 5, 10].map(n => ({ l: n + " кр.", v: n })), "laps"));
 }
 function rSetup() {
   $("setup").innerHTML = back("play", "Выбор режима") + `<div class="body"><div class="card" style="max-width:640px">

@@ -27,7 +27,45 @@ function playerDef() {
 }
 function placeOnGrid(c, slot) { c.s = -10 - 9 * slot; c.d = slot % 2 ? 2.6 : -2.6; c.prevLap = -1; c.lapStart = 0; }
 
+/* Свободная езда по городу: без кругов и соперников, очки за дрифт. */
+function startFree() {
+  FREE = true; WET = G.weather === "rain" ? 1 : 0;
+  buildCity(); buildCityWorld();
+  if (R.skid) { R.skidN = 0; R.skid.count = 0; R.skidLast = [null, null]; }
+  const D = playerDef(), p = newVehicle(D); p.auto = G.auto; p.assist = false; p.name = "Ты";
+  p.x = CITY.spawn.x; p.z = CITY.spawn.z; p.hd = CITY.spawn.hd; p.prevLap = -1; p.lapStart = 0;
+  G.cars = [p]; G.player = p; G.free = true; G.t = 0; G.accum = 0; G.paused = false; G.state = "race"; G.rewarded = true; G.coinsEarned = 0; G.netT = 0;
+  G.drift = { cur: 0, total: 0, best: 0, mult: 1, ang: 0, active: false, hold: 0, chain: 0, idle: 0 };
+  setAICars([]); buildCockpit(D); setGhost(D); R.ghost.visible = false;
+  $("results").style.display = "none";
+  R.view = "chase";
+  G.msgT = 3; G.msgText = "СВОБОДНАЯ ЕЗДА";
+}
+
+function freeStep(h) {
+  const P = G.player, dr = G.drift;
+  const inp = { steer: input.steer, gas: input.gasSm, brake: input.brakeSm, hb: input.hb };
+  physStep(P, inp, h);
+  const hit = freeCollide(P, CITY.boxes);
+  G.t += h;
+  // очки за дрифт: угол скольжения кузова и скорость; серия копится, пока занос не оборвался
+  const ang = P.vx > 3 ? Math.abs(Math.atan2(P.vy, P.vx)) : 0;
+  dr.ang = ang;
+  const sliding = P.vx > 7 && ang > 0.24 && ang < 1.45;
+  if (sliding) {
+    dr.active = true; dr.idle = 0; dr.chain += h; dr.hold = 1;
+    dr.mult = 1 + Math.min(5, dr.chain / 2.5);
+    dr.cur += P.vx * Math.min(ang, 1.0) * h * 3.2 * dr.mult;
+  } else {
+    dr.active = false; dr.idle += h; dr.hold = Math.max(0, 1 - dr.idle / 1.2);
+    if (dr.idle > 1.2 && dr.cur > 0) { dr.total += dr.cur; dr.best = Math.max(dr.best, dr.cur); dr.cur = 0; dr.chain = 0; dr.mult = 1; }
+  }
+  if (hit > 0.2) { dr.cur = 0; dr.chain = 0; dr.mult = 1; }
+}
+
 function startRace() {
+  if (G.mode === "free" && !G.online) { startFree(); return; }
+  FREE = false; G.free = false;
   WET = (!G.online && G.weather === "rain") ? 1 : 0;
   buildTrack(TRACKS[G.trackIdx]);
   buildWorld();
@@ -108,6 +146,7 @@ function onRemoteState(m) {
 }
 
 function simStep(h) {
+  if (G.free) { freeStep(h); return; }
   const cs = G.cars, P = G.player;
   if (G.state === "grid") {                 // стоим на решётке, двигатель крутится
     G.t += h;
@@ -240,7 +279,7 @@ function frame(now) {
     pos: rank(P), total: G.cars.length, lap: P.prevLap + 1, laps: G.laps,
     lastStr: P.last != null ? fmt(P.last) : "", session: G.t > 0 ? fmt(G.t) : "", curT: G.t > 0 ? G.t - P.lapStart : 0,
     delta: (P.bestSplits && P.cur && P.cur[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] != null && P.bestSplits[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] != null) ? P.cur[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] - P.bestSplits[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] : null,
-    ghost: ghostAt(P),
+    ghost: G.free ? null : ghostAt(P), free: !!G.free, drift: G.free ? G.drift : null,
     gasV: input.gasSm || 0, brakeV: input.brakeSm || 0,
     timeStr: G.t > 0 ? fmt(G.t - P.lapStart) : "", bestStr: P.best != null ? fmt(P.best) : "", surface: P.onGrass && P.vx > 3
   };
@@ -274,6 +313,7 @@ async function begin() {
   look.yaw = look.pitch = 0; G.gyroRef = false;
   $("touch").style.display = G.touch ? "block" : "none";
   $("tL").style.display = $("tR").style.display = G.touch && G.touchSteer === "btn" ? "block" : "none";
+  $("tHand").style.display = G.touch && G.mode === "free" && !G.online ? "block" : "none";
   $("tWheel").style.display = G.touch && G.touchSteer === "wheel" ? "block" : "none";
   $("tCal").style.display = G.touch && (G.touchSteer === "tilt" || gyro.enabled) ? "block" : "none";
   wheelUI.v = 0; wheelUI.held = false;
@@ -288,6 +328,7 @@ async function begin() {
   if (G.touch) setTimeout(calibrateTilt, 400);
 }
 function toMenu() {
+  FREE = false; G.free = false;
   if (R.hud2) R.hud2.style.display = "none";
   $("results").style.display = "none"; $("touch").style.display = "none";
   input.touchMode = false; input.gas = input.brake = input.kbLeft = input.kbRight = 0;

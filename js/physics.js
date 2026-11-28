@@ -1,6 +1,8 @@
 "use strict";
 /* Погода: WET 0..1 — мокрая трасса. Сцепление падает до ~65%, на скорости добавляется аквапланирование. */
 let WET = 0;
+/* Свободная езда по городу: машина живёт в мировых координатах x, z, курс hd (вперёд = (sin hd, -cos hd)), без трассы. */
+let FREE = false;
 /* Формулы в дождь едут на дождевых шинах: потеря сцепления меньше. */
 function wetGrip(v, cls) { return 1 - WET * ((cls === "formula" ? 0.18 : 0.32) + 0.12 * Math.max(0, Math.min(1, (v - 50) / 40))); }
 /* Динамика машины: велосипедная модель с боковым скольжением, нагрузкой на оси
@@ -11,7 +13,7 @@ function wetGrip(v, cls) { return 1 - WET * ((cls === "formula" ? 0.18 : 0.32) +
 
 function newVehicle(def) {
   return {
-    def, s: 0, d: 0, psi: 0, vx: 0, vy: 0, r: 0,
+    def, s: 0, d: 0, psi: 0, vx: 0, vy: 0, r: 0, x: 0, z: 0, hd: 0, rev: false,
     gear: 1, rpm: def.idle, shiftT: 0, auto: false, hitRev: false,
     delta: 0, steerSm: 0,
     tempF: def.tireOpt * 0.78, tempR: def.tireOpt * 0.78, wearF: 0, wearR: 0,
@@ -58,7 +60,23 @@ function physStep(c, inp, dt) {
   // --- поверхность ---
   const ad = Math.abs(c.d), edge = ROAD_W / 2 + KERB_W;
   c.onGrass = ad > ROAD_W / 2 + 0.3;
-  const muSurf = (ad <= ROAD_W / 2 + 0.3 ? 1 : (ad <= edge + 2 ? 0.8 : 0.5)) * wetGrip(c.vx, D.cls);
+  const muSurf = (FREE ? 1 : (ad <= ROAD_W / 2 + 0.3 ? 1 : (ad <= edge + 2 ? 0.8 : 0.5))) * wetGrip(c.vx, D.cls);
+  if (FREE) c.onGrass = false;
+
+  // --- задний ход (свободная езда): тормоз у остановки включает R, газ возвращает вперёд ---
+  if (FREE) {
+    if (!c.rev && inp.brake > 0.2 && inp.gas < 0.1 && c.vx < 0.8) c.rev = true;
+    if (c.rev && inp.gas > 0.1) c.rev = false;
+    if (c.rev) {
+      const tgt = -8 * inp.brake;
+      c.vx += (tgt - c.vx) * Math.min(1, dt * 1.6); c.vy = 0;
+      c.delta += Math.max(-2.2 * dt, Math.min(2.2 * dt, inp.steer * D.steerLock * 0.8 - c.delta));
+      c.r = c.vx * Math.tan(c.delta) / L; c.ax = 0; c.ay = 0; c.rpm = D.idle * 1.3; c.rpmWheel = D.idle; c.alphaF = c.alphaR = 0;
+      const sp = Math.sin(c.hd), cp = Math.cos(c.hd);
+      c.x += c.vx * sp * dt; c.z += -c.vx * cp * dt; c.hd += c.r * dt;
+      return;
+    }
+  }
 
   // --- аэродинамика ---
   const q = 0.5 * RHO * vxp * vxp;
@@ -73,7 +91,7 @@ function physStep(c, inp, dt) {
   // --- шины ---
   c.tireF = tireFactor(c.tempF, D.tireOpt, c.wearF);
   c.tireR = tireFactor(c.tempR, D.tireOpt, c.wearR);
-  const muF = D.mu * c.tireF * muSurf, muR = D.mu * c.tireR * muSurf * 1.05;
+  const muF = D.mu * c.tireF * muSurf, muR = D.mu * c.tireR * muSurf * (FREE ? 0.93 : 1.05);   // в городе задняя ось чуть «живее» для заносов
   c.gripF = muF; c.gripR = muR;
 
   // --- руль ---
@@ -83,7 +101,7 @@ function physStep(c, inp, dt) {
   else {
     // руль, зависящий от скорости: полный поворот = ~110% предельного бокового ускорения
     // (с прижимной силой предел растёт со скоростью), на малой скорости — полный угол колёс
-    const dMax = Math.min(D.steerLock, 1.1 * L * aMaxCar / Math.max(vxp * vxp, 16));
+    const dMax = (FREE && !c.assist) ? D.steerLock : Math.min(D.steerLock, 1.1 * L * aMaxCar / Math.max(vxp * vxp, 16));
     deltaWanted = inp.steer * dMax;
   }
   const maxRate = 2.2;                          // рад/с
@@ -128,6 +146,7 @@ function physStep(c, inp, dt) {
   const absOn = D.abs || c.assist;
   c.lockF = c.lockR = c.spinR = false;
   let latF = 1, latR = 1;
+  if (inp.hb) { latR *= 0.3; FxR -= D.brakeMax * 0.35 * Math.sign(c.vx || 1); c.hb = true; } else c.hb = false;   // ручник блокирует заднюю ось
   // "круг трения": пока машина занята поворотом (u = доля бокового предела), на тягу и торможение остаётся
   // sqrt(1-u^2) сцепления; без поворота ABS/антипробуксовка работают на 95-97% предела
   const u = Math.min(0.98, Math.abs(c.ay) / Math.max(4, aMaxCar)), circ = Math.sqrt(1 - u * u);
@@ -188,6 +207,12 @@ function physStep(c, inp, dt) {
   c.wearF = Math.min(c.wearF, 1); c.wearR = Math.min(c.wearR, 1);
   c.tempF = Math.max(20, Math.min(160, c.tempF)); c.tempR = Math.max(20, Math.min(160, c.tempR));
 
+  if (FREE) {                                            // --- движение в мировых координатах ---
+    const sp = Math.sin(c.hd), cp = Math.cos(c.hd);
+    c.x += (c.vx * sp + c.vy * cp) * dt; c.z += (-c.vx * cp + c.vy * sp) * dt; c.hd += c.r * dt;
+    c.rpmWheel = wr; c.wall = 0;
+    return;
+  }
   // --- движение по трассе ---
   const kap = kappaAt(c.s);
   const sdot = (c.vx * Math.cos(c.psi) - c.vy * Math.sin(c.psi)) / (1 - kap * c.d);
@@ -217,7 +242,37 @@ function physStep(c, inp, dt) {
   if (c.stuckT > 3) recoverVehicle(c);
 }
 
+/* Столкновения со зданиями: три круга по длине машины против прямоугольников города. */
+function freeCollide(c, boxes) {
+  const sp = Math.sin(c.hd), cp = Math.cos(c.hd), R0 = 1.05;
+  let hit = 0;
+  for (const off of [-1.6, 0, 1.6]) {
+    for (let it = 0; it < 2; it++) {
+      const px = c.x + sp * off, pz = c.z - cp * off;
+      let moved = false;
+      for (const b of boxes) {
+        const nx = Math.max(b.x - b.hw, Math.min(px, b.x + b.hw)), nz = Math.max(b.z - b.hd, Math.min(pz, b.z + b.hd));
+        let dx = px - nx, dz = pz - nz, d2 = dx * dx + dz * dz;
+        if (d2 >= R0 * R0) continue;
+        let d = Math.sqrt(d2), n0x, n0z, pen;
+        if (d < 1e-6) { n0x = px < b.x ? -1 : 1; n0z = 0; pen = R0; } else { n0x = dx / d; n0z = dz / d; pen = R0 - d; }
+        c.x += n0x * pen; c.z += n0z * pen; moved = true;
+        const wx = c.vx * sp + c.vy * cp, wz = -c.vx * cp + c.vy * sp, vn = wx * n0x + wz * n0z;
+        if (vn < 0) {
+          hit = Math.max(hit, Math.min(1, -vn / 15));
+          const k = 1.25, nwx = wx - k * vn * n0x, nwz = wz - k * vn * n0z;
+          c.vx = (nwx * sp - nwz * cp) * 0.92; c.vy = (nwx * cp + nwz * sp) * 0.92; c.r *= 0.75;
+        }
+      }
+      if (!moved) break;
+    }
+  }
+  c.wall = hit;
+  return hit;
+}
+
 function recoverVehicle(c) {
+  if (FREE && typeof CITY !== "undefined") { c.x = CITY.spawn.x; c.z = CITY.spawn.z; c.hd = CITY.spawn.hd; c.vx = c.vy = c.r = c.delta = 0; c.rev = false; c.stuckT = 0; return; }
   c.d = Math.max(-2, Math.min(2, c.d * 0.2)); c.psi = 0; c.vx = 10; c.vy = 0; c.r = 0; c.delta = 0;
   c.gear = Math.max(1, Math.min(c.gear, 3)); c.stuckT = 0; c.recovered = (c.recovered || 0) + 1;
 }

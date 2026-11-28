@@ -232,6 +232,61 @@ function updateRain(p, v, dt) {
   R.rain.geometry.attributes.position.needsUpdate = true;
 }
 
+/* Город: асфальтовая плоскость с разметкой улиц и кварталов, все здания одной сеткой (окна повторяются по размеру стен). */
+function buildCityWorld() {
+  initRender();
+  WET = WET;                                       // погода уже выставлена
+  applyEnv({ sky: 0x9dbfe2, fog: 0xbccbd9, ground: 0x5e6066, trees: "none", city: true, wall: "concrete" });
+  if (R.world) R.scene.remove(R.world);
+  const W = R.world = new THREE.Group(); R.scene.add(W);
+  const { P, N, ROAD } = CITY, size = N * P;
+  const tile = canvasTex(256, 256, (g, w, h) => {
+    const k = w / P, r = ROAD * k, b = w - r;
+    g.fillStyle = WET ? "#26282c" : "#3a3c41"; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 2400; i++) { const l = i % 2 ? 255 : 0; g.fillStyle = "rgba(" + l + "," + l + "," + l + ",0.035)"; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+    g.fillStyle = "#7d8087"; g.fillRect(r / 2, r / 2, b, b);                       // кварталы: тротуар
+    g.fillStyle = "#9a9da4"; g.fillRect(r / 2 + 3, r / 2 + 3, b - 6, b - 6);
+    g.fillStyle = "#e8e8e8";                                                        // осевая линия улиц
+    for (let x = 0; x < w; x += 18 * k) { g.fillRect(x, 0, 9 * k, 1.2); g.fillRect(0, x, 1.2, 9 * k); }
+    g.fillStyle = "#f4f4f4"; for (let s = 0; s < 8; s++) { g.fillRect(r / 2 - 3, r / 2 + 6 + s * 7, 3, 4); g.fillRect(r / 2 + b, r / 2 + 6 + s * 7, 3, 4); }   // зебры
+  });
+  tile.repeat.set(N, N);
+  const gm = new THREE.Mesh(new THREE.PlaneGeometry(size, size), WET && R.env
+    ? new THREE.MeshStandardMaterial({ map: tile, roughness: 0.18, metalness: 0.25, envMap: R.env, envMapIntensity: 1.1 }) : new THREE.MeshLambertMaterial({ map: tile }));
+  gm.rotation.x = -Math.PI / 2; gm.position.y = 0.005; W.add(gm);
+  // здания: собираем геометрию вручную (24 вершины на коробку)
+  const win = canvasTex(64, 64, (g, w, h) => {
+    g.fillStyle = "#8d9097"; g.fillRect(0, 0, w, h);
+    for (let y = 5; y < h - 6; y += 16) for (let x = 6; x < w - 8; x += 16) { g.fillStyle = Math.random() < 0.18 ? "#ffe6a0" : "#2a3b4f"; g.fillRect(x, y, 9, 10); }
+  });
+  const pos = [], nor = [], uv = [], col = [], idx = [];
+  const face = (cx, cy, cz, ax, ay, az, bx, by, bz, nx, ny, nz, su, sv, tint) => {       // четырёхугольник по центру и двум полуосям
+    const base = pos.length / 3;
+    for (const [a, b, u, v] of [[-1, -1, 0, 0], [1, -1, 1, 0], [1, 1, 1, 1], [-1, 1, 0, 1]]) {
+      pos.push(cx + ax * a + bx * b, cy + ay * a + by * b, cz + az * a + bz * b); nor.push(nx, ny, nz); uv.push(u * su, v * sv); col.push(tint, tint, tint);
+    }
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  };
+  for (const b of CITY.boxes) {
+    const t = b.tint, hy = b.h / 2, su = x => Math.max(1, x / 8), sv = b.wall ? 1 : Math.max(1, b.h / 6);
+    face(b.x, hy, b.z + b.hd, b.hw, 0, 0, 0, hy, 0, 0, 0, 1, su(b.hw * 2), sv, t);       // +z
+    face(b.x, hy, b.z - b.hd, -b.hw, 0, 0, 0, hy, 0, 0, 0, -1, su(b.hw * 2), sv, t);     // -z
+    face(b.x + b.hw, hy, b.z, 0, 0, -b.hd, 0, hy, 0, 1, 0, 0, su(b.hd * 2), sv, t * 0.9);  // +x
+    face(b.x - b.hw, hy, b.z, 0, 0, b.hd, 0, hy, 0, -1, 0, 0, su(b.hd * 2), sv, t * 0.9); // -x
+    face(b.x, b.h, b.z, b.hw, 0, 0, 0, 0, b.hd, 0, 1, 0, 1, 1, t * 0.6);                  // крыша
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
+  g.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(nor), 3));
+  g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(uv), 2));
+  g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(col), 3));
+  g.setIndex(idx);
+  const bm = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: win, vertexColors: true, side: THREE.DoubleSide }));
+  bm.castShadow = true; bm.receiveShadow = true; W.add(bm);
+  gm.receiveShadow = true;
+  makeRain();
+}
+
 function buildWorld() {
   initRender();
   const env = (TRACK.info && TRACK.info.env) || null;
@@ -544,6 +599,46 @@ function buildCarMesh(def, color, exterior) {
   return g;
 }
 
+/* ---------- Дым и следы шин при заносе (свободная езда) ---------- */
+function emitSmoke(c) {
+  if (!R.smk) {
+    const n = 500; R.smk = { pos: new Float32Array(n * 3), vel: new Float32Array(n * 3), life: new Float32Array(n), i: 0, n };
+    for (let k = 0; k < n; k++) R.smk.pos[k * 3 + 1] = -50;
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(R.smk.pos, 3));
+    R.smoke = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xe4e4e8, size: 4.2, transparent: true, opacity: 0.32, depthWrite: false }));
+    R.smoke.frustumCulled = false; R.scene.add(R.smoke);
+    const sg = new THREE.PlaneGeometry(0.34, 1.1); sg.rotateX(-Math.PI / 2);
+    R.skid = new THREE.InstancedMesh(sg, new THREE.MeshBasicMaterial({ color: 0x0a0a0a, transparent: true, opacity: 0.5, depthWrite: false }), 1400);
+    R.skid.frustumCulled = false; R.skidN = 0; R.skidLast = [null, null]; R.scene.add(R.skid);
+  }
+  const P0 = carPose(c), hd = P0.hd, fx = Math.sin(hd), fz = -Math.cos(hd), rx = Math.cos(hd), rz = Math.sin(hd), S = R.smk;
+  const back = c.def.wb / 2, tr = 0.85, m4 = new THREE.Matrix4();
+  for (let w = 0; w < 2; w++) {
+    const side = w ? 1 : -1, wx = P0.x - fx * back + rx * side * tr, wz = P0.z - fz * back + rz * side * tr;
+    for (let k = 0; k < 2; k++) {
+      const i = S.i++ % S.n;
+      S.pos[i * 3] = wx + (Math.random() - 0.5) * 0.6; S.pos[i * 3 + 1] = 0.3; S.pos[i * 3 + 2] = wz + (Math.random() - 0.5) * 0.6;
+      S.vel[i * 3] = (Math.random() - 0.5) * 1.5 + c.vx * fx * 0.1; S.vel[i * 3 + 1] = 0.6 + Math.random() * 1.2; S.vel[i * 3 + 2] = (Math.random() - 0.5) * 1.5 + c.vx * fz * 0.1;
+      S.life[i] = 1.6;
+    }
+    const L0 = R.skidLast[w];                          // след: новая отметка не чаще, чем через ~0.9 м
+    if (!L0 || Math.hypot(L0[0] - wx, L0[1] - wz) > 0.9) {
+      m4.makeRotationY(-hd); m4.setPosition(wx, 0.03, wz);
+      R.skid.setMatrixAt(R.skidN++ % 1400, m4); R.skid.instanceMatrix.needsUpdate = true; R.skid.count = Math.min(R.skidN, 1400);
+      R.skidLast[w] = [wx, wz];
+    }
+  }
+}
+function updateSmoke(dt) {
+  const S = R.smk; if (!S) return;
+  for (let k = 0; k < S.n; k++) {
+    if (S.life[k] <= 0) { S.pos[k * 3 + 1] = -50; continue; }
+    S.life[k] -= dt; S.pos[k * 3] += S.vel[k * 3] * dt; S.pos[k * 3 + 1] += S.vel[k * 3 + 1] * dt; S.pos[k * 3 + 2] += S.vel[k * 3 + 2] * dt;
+    S.vel[k * 3 + 1] *= 0.985;
+  }
+  R.smoke.geometry.attributes.position.needsUpdate = true;
+}
+
 /* ---------- Брызги из-под колёс в дождь ---------- */
 function emitSpray(obj, c) {
   if (!R.spray) {
@@ -553,8 +648,8 @@ function emitSpray(obj, c) {
     R.spray = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xdfe7ef, size: 1.7, transparent: true, opacity: 0.28, depthWrite: false }));
     R.spray.frustumCulled = false; R.scene.add(R.spray);
   }
-  const t = trackAt(c.s), hd = t.h + c.psi, fx = Math.sin(hd), fz = -Math.cos(hd), rx = Math.cos(hd), rz = Math.sin(hd);
-  const bx = t.x + Math.cos(t.h) * c.d, bz = t.z + Math.sin(t.h) * c.d, back = c.def.wb / 2 + 0.2, v = c.vx, S = R.sp;
+  const P0 = carPose(c), hd = P0.hd, fx = Math.sin(hd), fz = -Math.cos(hd), rx = Math.cos(hd), rz = Math.sin(hd);
+  const bx = P0.x, bz = P0.z, back = c.def.wb / 2 + 0.2, v = c.vx, S = R.sp;
   for (let k = 0; k < 3; k++) {
     const side = Math.random() < 0.5 ? -1 : 1, i = S.i++ % S.n;
     S.pos[i * 3] = bx - fx * back + rx * side * 0.85; S.pos[i * 3 + 1] = 0.25; S.pos[i * 3 + 2] = bz - fz * back + rz * side * 0.85;
@@ -668,6 +763,20 @@ function drawScreenHud(S, now, show, full, touch) {
     g.fillStyle = "#e10600"; g.fillRect(x, y + r, u * 0.25, h - 2 * r);
   };
   const top = touch ? u * 3.6 : u * 1.0, pad = u * 0.9;
+  if (S.free) {
+    const D = S.drift || { cur: 0, total: 0, best: 0, mult: 1, ang: 0, active: false };
+    panel(u, top, u * 17, u * 6.4);
+    lab("DRIFT", u + pad, top + u * 1.2);
+    txt(String(Math.round(D.cur)), u + pad, top + u * 4.1, u * 2.6, D.active ? "#ffcc00" : "#fff", "left", true);
+    txt("x" + D.mult.toFixed(1), u * 11, top + u * 4.1, u * 1.7, D.mult > 1.05 ? "#ff7a45" : "#9aa3b2", "left", true);
+    g.fillStyle = "rgba(255,255,255,0.12)"; g.fillRect(u + pad, top + u * 5.1, u * 15, u * 0.4);
+    g.fillStyle = D.active ? "#ffcc00" : "#e10600"; g.fillRect(u + pad, top + u * 5.1, u * 15 * Math.min(1, D.hold), u * 0.4);
+    const pw = u * 12, px = W - u - pw;
+    panel(px, top, pw, u * 6.4);
+    lab("TOTAL", px + pad, top + u * 1.2); txt(String(Math.round(D.total)), px + pad, top + u * 3.4, u * 1.6, "#fff", "left", true);
+    lab("BEST CHAIN", px + pad, top + u * 4.5); txt(String(Math.round(D.best)), px + pad, top + u * 5.9, u * 1.1, "#dfe4ea", "left", true);
+    lab("ANGLE", px + pw * 0.58, top + u * 1.2); txt(Math.round(D.ang * 57.3) + "°", px + pw * 0.58, top + u * 3.4, u * 1.6, "#fff", "left", true);
+  } else {
   // слева: лучший и последний круг
   panel(u, top, u * 19, u * 4.6);
   lab("BEST", u + pad, top + u * 1.2); txt(S.bestStr || "--:--.---", u + pad, top + u * 3.4, u * 1.6, "#fff", "left", true);
@@ -680,6 +789,7 @@ function drawScreenHud(S, now, show, full, touch) {
   lab("SESSION", px + pad, top + u * 4.9); txt(S.session || "00:00.000", px + pad, top + u * 6.2, u * 1.05, "#dfe4ea", "left", true);
   lab("CURRENT LAP", px + pad, top + u * 7.3); txt(tm(S.curT), px + pad, top + u * 8.6, u * 1.05, "#fff", "left", true);
   if (S.delta != null) txt((S.delta >= 0 ? "+" : "-") + Math.abs(S.delta).toFixed(3), px + pw - pad * 0.6, top + u * 6.2, u * 1.25, S.delta > 0 ? "#ff5a4d" : "#43e88a", "right", true);
+  }
   if (!full) return;
   // круглый тахометр
   const R0 = Math.min(u * 6.2, H * 0.2), cx = touch ? W / 2 : W - R0 - u * 2.2, cy = H - R0 - u * 1.8;
@@ -749,9 +859,14 @@ function drawHud(S, now) {
 }
 
 /* ---------- Кадр ---------- */
+function carPose(c) {                                  // положение и курс машины: по трассе или в мировых координатах города
+  if (FREE) return { x: c.x, z: c.z, hd: c.hd };
+  const t = trackAt(c.s);
+  return { x: t.x + Math.cos(t.h) * c.d, z: t.z + Math.sin(t.h) * c.d, hd: t.h + c.psi };
+}
 function applyCarTransform(obj, c, now) {
-  const t = trackAt(c.s), heading = t.h + c.psi;
-  obj.position.set(t.x + Math.cos(t.h) * c.d, 0, t.z + Math.sin(t.h) * c.d);
+  const P0 = carPose(c), heading = P0.hd;
+  obj.position.set(P0.x, 0, P0.z);
   obj.rotation.set(Math.max(-0.05, Math.min(0.05, c.ax * 0.004)), -heading, Math.max(-0.07, Math.min(0.07, -c.ay * 0.004)), "YXZ");
 }
 
@@ -788,6 +903,10 @@ function renderFrame(playerCar, cars, S, dt, vr) {
       if (WET && c.vx > 22) emitSpray(mesh === R.playerExt ? R.player : mesh, c);
     }
     updateSpray(dt);
+    if (FREE) {
+      if ((playerCar.hb || Math.abs(playerCar.alphaR) > 0.2 || playerCar.spinR) && playerCar.vx > 4) emitSmoke(playerCar);
+      updateSmoke(dt);
+    }
   }
   const p = R.player.position;
   R.grass.position.set(p.x, -0.03, p.z);

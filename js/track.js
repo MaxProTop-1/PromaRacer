@@ -131,3 +131,33 @@ function trackAt(s) {
   while (dh < -Math.PI) dh += 2 * Math.PI;
   return { x: T.X[i] + (T.X[j] - T.X[i]) * f, z: T.Z[i] + (T.Z[j] - T.Z[i]) * f, h: T.H[i] + dh * f };
 }
+
+/* ---------- Город для свободной езды ----------
+   Сетка кварталов 60x60 м и улиц 16 м (шаг 76 м). В центре большая площадь для дрифта,
+   по краям высокая стена-граница. Здания хранятся как прямоугольники для столкновений. */
+const CITY = { P: 76, N: 15, ROAD: 16, boxes: [], spawn: { x: 0, z: 0, hd: 0 }, half: 0 };
+function buildCity() {
+  const { P, N, ROAD } = CITY, B = P - ROAD, half = N * P / 2;
+  let seed = 777; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+  CITY.boxes = []; CITY.half = half;
+  const mid = (N - 1) / 2;
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+    const cx = (i - mid) * P, cz = (j - mid) * P, dc = Math.max(Math.abs(i - mid), Math.abs(j - mid));
+    if (dc <= 1) continue;                                   // центральная площадь 3x3 квартала (~220 м)
+    if (rnd() < 0.1) continue;                               // пустырь / парковка
+    const parts = rnd() < 0.5 ? 1 : 2, tall = 14 + rnd() * rnd() * 90 * (1.3 - dc / (N / 2) * 0.6);
+    for (let k = 0; k < parts; k++) {
+      const w = parts === 1 ? B - 4 : (B - 6) / 2, d = B - 4 - rnd() * 14;
+      const x = cx + (parts === 1 ? 0 : (k ? 1 : -1) * (w / 2 + 1.5)), z = cz + (rnd() - 0.5) * (B - 4 - d);
+      CITY.boxes.push({ x, z, hw: w / 2, hd: d / 2, h: Math.max(8, tall * (0.6 + rnd() * 0.7)), tint: 0.7 + rnd() * 0.5 });
+    }
+  }
+  const wallT = 2, h = 4;                                     // граница города
+  for (const s of [-1, 1]) {
+    CITY.boxes.push({ x: 0, z: s * (half + wallT / 2), hw: half + wallT, hd: wallT / 2, h, tint: 0.9, wall: true });
+    CITY.boxes.push({ x: s * (half + wallT / 2), z: 0, hw: wallT / 2, hd: half + wallT, h, tint: 0.9, wall: true });
+  }
+  CITY.spawn = { x: 0, z: P * 0.5 + 40, hd: -Math.PI / 2 };   // у края площади, смотрим вдоль улицы
+  CITY.spawn = { x: -60, z: 0, hd: Math.PI / 2 };
+  return CITY;
+}
