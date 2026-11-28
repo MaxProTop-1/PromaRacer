@@ -416,7 +416,7 @@ function carMaterials(color) {
     chrome: phong(0xdcdcdc, 160, 0xffffff),
     white: phong(0xf2f2f2, 80, 0x555555),
     head: new THREE.MeshBasicMaterial({ color: 0xfff4d0 }),
-    tail: new THREE.MeshBasicMaterial({ color: 0xff1c1c }),
+    tail: new THREE.MeshBasicMaterial({ color: 0x8a1414 }),
     tire: lam(0x0c0c0d),
     rim: phong(0xc4c7cc, 130, 0xffffff),
     disc: phong(0x6d6f73, 60, 0x888888),
@@ -540,8 +540,36 @@ function buildCarMesh(def, color, exterior) {
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) makeWheel(M, r, sz < 0 ? 0.36 : 0.46, sx * tr, sz * A, sz < 0, g, wheels);
   }
   g.traverse(o => { if (o.isMesh) o.castShadow = true; });
-  g.userData.wheels = wheels;
+  g.userData.wheels = wheels; g.userData.tail = M.tail;
   return g;
+}
+
+/* ---------- Брызги из-под колёс в дождь ---------- */
+function emitSpray(obj, c) {
+  if (!R.spray) {
+    const n = 700; R.sp = { pos: new Float32Array(n * 3), vel: new Float32Array(n * 3), life: new Float32Array(n), i: 0, n };
+    for (let k = 0; k < n; k++) R.sp.pos[k * 3 + 1] = -50;
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(R.sp.pos, 3));
+    R.spray = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xdfe7ef, size: 1.7, transparent: true, opacity: 0.28, depthWrite: false }));
+    R.spray.frustumCulled = false; R.scene.add(R.spray);
+  }
+  const t = trackAt(c.s), hd = t.h + c.psi, fx = Math.sin(hd), fz = -Math.cos(hd), rx = Math.cos(hd), rz = Math.sin(hd);
+  const bx = t.x + Math.cos(t.h) * c.d, bz = t.z + Math.sin(t.h) * c.d, back = c.def.wb / 2 + 0.2, v = c.vx, S = R.sp;
+  for (let k = 0; k < 3; k++) {
+    const side = Math.random() < 0.5 ? -1 : 1, i = S.i++ % S.n;
+    S.pos[i * 3] = bx - fx * back + rx * side * 0.85; S.pos[i * 3 + 1] = 0.25; S.pos[i * 3 + 2] = bz - fz * back + rz * side * 0.85;
+    S.vel[i * 3] = -fx * v * 0.12 + (Math.random() - 0.5) * 2; S.vel[i * 3 + 1] = 1 + Math.random() * 2.5; S.vel[i * 3 + 2] = -fz * v * 0.12 + (Math.random() - 0.5) * 2;
+    S.life[i] = 0.9;
+  }
+}
+function updateSpray(dt) {
+  const S = R.sp; if (!S) return;
+  for (let k = 0; k < S.n; k++) {
+    if (S.life[k] <= 0) { S.pos[k * 3 + 1] = -50; continue; }
+    S.life[k] -= dt; S.vel[k * 3 + 1] -= 3 * dt;
+    S.pos[k * 3] += S.vel[k * 3] * dt; S.pos[k * 3 + 1] = Math.max(0.05, S.pos[k * 3 + 1] + S.vel[k * 3 + 1] * dt); S.pos[k * 3 + 2] += S.vel[k * 3 + 2] * dt;
+  }
+  R.spray.geometry.attributes.position.needsUpdate = true;
 }
 
 function setAICars(list) {
@@ -609,6 +637,57 @@ function buildCockpit(def) {
 
 /* ---------- Приборка ---------- */
 let _hudAt = 0;
+/* Экранная приборка в стиле современных гонок: таймеры, дельта к лучшему кругу, круглый тахометр со скоростью и передачей. */
+function drawScreenHud(S, now, show, full, touch) {
+  if (!R.hud2) {
+    const c = document.createElement("canvas"); c.style.cssText = "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:3;display:none";
+    document.body.appendChild(c); R.hud2 = c; R.hud2ctx = c.getContext("2d");
+  }
+  const cv = R.hud2; cv.style.display = show ? "block" : "none"; if (!show) return;
+  if (now - (R.hud2At || 0) < 33) return; R.hud2At = now;
+  const dpr = Math.min(2, window.devicePixelRatio || 1), W = innerWidth, H = innerHeight;
+  if (cv.width !== (W * dpr | 0)) { cv.width = W * dpr | 0; cv.height = H * dpr | 0; }
+  const g = R.hud2ctx; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const u = Math.max(10, Math.min(W, H * 1.6) / 60), F = "600 " , mono = "ui-monospace,Menlo,monospace";
+  const tm = t => { if (t == null || !isFinite(t)) return "--:--.---"; const m = Math.floor(t / 60), s = t - m * 60; return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s.toFixed(3); };
+  const txt = (s, x, y, size, col, al, bold) => { g.font = (bold ? "700 " : "500 ") + size + "px " + mono; g.textAlign = al || "left"; g.fillStyle = "#000a"; g.fillText(s, x + 1, y + 1); g.fillStyle = col; g.fillText(s, x, y); };
+  const top = touch ? u * 4.2 : u * 1.2;
+  // лучший / последний
+  txt("BEST", u, top + u * 0.9, u * 0.7, "#8fa3b8"); txt(S.bestStr || "--:--.---", u, top + u * 2.7, u * 1.7, "#fff", "left", true);
+  txt("LAST", u * 11.5, top + u * 0.9, u * 0.7, "#8fa3b8"); txt(S.lastStr || "--:--.---", u * 11.5, top + u * 2.7, u * 1.7, "#fff", "left", true);
+  // справа: круг, время сессии, текущий круг, дельта
+  const rx = W - u;
+  g.fillStyle = "#0008"; g.fillRect(rx - u * 9.5, top - u * 0.4, u * 9.5, u * 9);
+  txt("LAP", rx - u * 9, top + u * 0.9, u * 0.65, "#8fa3b8"); txt(Math.min(S.lap, S.laps) + "/" + S.laps, rx - u * 9, top + u * 2.6, u * 1.7, "#fff", "left", true);
+  txt("POS", rx - u * 4, top + u * 0.9, u * 0.65, "#8fa3b8"); txt("P" + S.pos + "/" + S.total, rx - u * 4, top + u * 2.6, u * 1.7, "#fff", "left", true);
+  txt("SESSION", rx - u * 9, top + u * 4.2, u * 0.6, "#8fa3b8"); txt(S.session || "00:00.000", rx - u * 9, top + u * 5.6, u * 1.25, "#fff", "left", true);
+  txt("CURRENT LAP", rx - u * 9, top + u * 7.0, u * 0.6, "#8fa3b8"); txt(tm(S.curT), rx - u * 9, top + u * 8.2, u * 1.25, "#fff", "left", true);
+  if (S.delta != null) txt((S.delta >= 0 ? "+" : "-") + Math.abs(S.delta).toFixed(3), rx - u * 0.3, top + u * 5.6, u * 1.4, S.delta > 0 ? "#ff4d4d" : "#4dff88", "right", true);
+  if (!full) return;
+  // круглый тахометр
+  const R0 = Math.min(u * 6.2, H * 0.2), cx = touch ? W / 2 : W - R0 - u * 2.2, cy = H - R0 - u * 1.8;
+  const a0 = 0.75 * Math.PI, a1 = 2.25 * Math.PI, fr = Math.min(1, S.rpm / S.redline);
+  g.fillStyle = "#050709b0"; g.beginPath(); g.arc(cx, cy, R0 + u * 0.5, 0, 7); g.fill();
+  g.lineWidth = u * 0.5; g.lineCap = "butt";
+  g.strokeStyle = "#2a323c"; g.beginPath(); g.arc(cx, cy, R0 - u * 0.4, a0, a1); g.stroke();
+  g.strokeStyle = "#ff2b2b"; g.beginPath(); g.arc(cx, cy, R0 - u * 0.4, a0 + (a1 - a0) * 0.88, a1); g.stroke();
+  g.strokeStyle = S.limiter ? "#4aa8ff" : "#f4f6f8"; g.beginPath(); g.arc(cx, cy, R0 - u * 0.4, a0, a0 + (a1 - a0) * fr); g.stroke();
+  g.lineWidth = 1.5; g.strokeStyle = "#cfd6dd"; g.fillStyle = "#cfd6dd";
+  const steps = Math.round(S.redline / 1000);
+  for (let k = 0; k <= steps; k++) {
+    const a = a0 + (a1 - a0) * (k * 1000 / S.redline), c = Math.cos(a), s = Math.sin(a);
+    g.beginPath(); g.moveTo(cx + c * (R0 - u * 1.2), cy + s * (R0 - u * 1.2)); g.lineTo(cx + c * (R0 - u * 0.8), cy + s * (R0 - u * 0.8)); g.stroke();
+    if (steps <= 16) { g.font = "500 " + u * 0.7 + "px " + mono; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(String(k), cx + c * (R0 - u * 2.1), cy + s * (R0 - u * 2.1)); g.textBaseline = "alphabetic"; }
+  }
+  txt(String(Math.round(S.kmh)), cx, cy + u * 0.9, u * 3.4, "#fff", "center", true);
+  txt("км/ч", cx, cy + u * 2.3, u * 0.8, "#8fa3b8", "center");
+  txt(S.gear, cx, cy - u * 1.6, u * 2.4, S.shifting ? "#888" : "#ffcc00", "center", true);
+  // педали вокруг (газ зелёный, тормоз красный)
+  g.lineWidth = u * 0.3;
+  g.strokeStyle = "#35ff7a"; g.beginPath(); g.arc(cx, cy, R0 + u * 0.9, -0.5 * Math.PI, -0.5 * Math.PI + S.gasV * 0.9 * Math.PI); g.stroke();
+  g.strokeStyle = "#ff4040"; g.beginPath(); g.arc(cx, cy, R0 + u * 0.9, -0.5 * Math.PI, -0.5 * Math.PI - S.brakeV * 0.9 * Math.PI, true); g.stroke();
+}
+
 function drawHud(S, now) {
   if (now - _hudAt < 50) return; _hudAt = now;
   const g = R.hudCtx, W = 512, H = 256;
@@ -682,6 +761,16 @@ function renderFrame(playerCar, cars, S, dt, vr) {
   }
   if (chase && R.playerExt) for (const w of R.playerExt.userData.wheels) { w.m.rotation.x -= playerCar.vx * dt / playerCar.def.wheelR; if (w.front) (w.p || w.m).rotation.y = -playerCar.delta * 0.8; }
 
+  // стоп-сигналы и брызги из-под колёс
+  { let kk = 0;
+    for (const c of cars) {
+      const mesh = c === playerCar ? R.playerExt : R.ai[kk++]; if (!mesh) continue;
+      const tm = mesh.userData && mesh.userData.tail;
+      if (tm && tm.color) tm.color.setHex((c.ax < -2.5 || (c === playerCar && input.brakeSm > 0.2) || WET) ? (c.ax < -2.5 ? 0xff2a2a : 0xb01818) : 0x8a1414);
+      if (WET && c.vx > 22) emitSpray(mesh === R.playerExt ? R.player : mesh, c);
+    }
+    updateSpray(dt);
+  }
   const p = R.player.position;
   R.grass.position.set(p.x, -0.03, p.z);
   if (R.sky) R.sky.position.set(p.x, 0, p.z);
@@ -690,6 +779,7 @@ function renderFrame(playerCar, cars, S, dt, vr) {
   R.grassTex.offset.set(p.x / R.TILE, -p.z / R.TILE);
 
   drawHud(S, now);
+  drawScreenHud(S, now, !vr, chase, !!(typeof G !== "undefined" && G.touch));
 
   const w = innerWidth, h = innerHeight, r = R.renderer;
   const spd = Math.min(1, playerCar.vx / 95);

@@ -18,7 +18,8 @@ for (const f of ["cars", "track", "physics", "ai", "input", "audio", "render", "
   vm.runInContext(fs.readFileSync(path.join(__dirname, "../js", f + ".js"), "utf8"), ctx, { filename: f });
 
 const carId = process.argv[2] || "f1", trackIdx = +(process.argv[3] || 0);
-vm.runInContext(`G.carId=${JSON.stringify(carId)}; G.trackIdx=${trackIdx}; G.laps=2; G.opp=5; G.vr=true; startRace();`, ctx);
+const wx = process.argv[4] || "clear", hud = process.argv[5] === "hud";   // 4-й аргумент: rain; 5-й: hud (проверка экранной приборки)
+vm.runInContext(`G.carId=${JSON.stringify(carId)}; G.trackIdx=${trackIdx}; G.laps=2; G.opp=5; G.vr=${!hud}; G.weather=${JSON.stringify(wx)}; G.touch=${hud}; startRace();`, ctx);
 vm.runInContext(`G.player.isAI=true; G.player.ai=newAI(G.player.def,0.99,0); G.player.ai.base=0;`, ctx);   // автопилот вместо человека
 let now = 0;
 const step = ms => { now += ms; rafCb(now); };

@@ -137,6 +137,10 @@ function simStep(h) {
       c.draft = lead && lead.gap < 25 ? 0.22 * (1 - lead.gap / 25) : 0;
     }
     physStep(c, inp, h);
+    if (c === P && c.s >= 0 && G.t > 0) {                 // отсечки по кругу для дельты к лучшему
+      const fr = Math.floor(((c.s % TRACK.L) / TRACK.L) * 100);
+      (P.cur || (P.cur = []))[fr] = G.t - c.lapStart;
+    }
     // круги
     const li = Math.floor(c.s / TRACK.L);
     if (li > c.prevLap) {
@@ -144,7 +148,8 @@ function simStep(h) {
         const lt = G.t - c.lapStart;
         if (c === P) {
           if (P.best == null || lt < P.best) { P.best = lt; G.bests[G.carId + "|" + TRACKS[G.trackIdx].id] = lt; saveSettings(); }
-          P.last = lt;
+          if (P.best === lt && P.cur) P.bestSplits = P.cur.slice();
+          P.last = lt; P.cur = [];
         }
         c.lapStart = G.t;
         if (li >= G.laps && c.finishT == null) c.finishT = G.t;
@@ -224,6 +229,9 @@ function frame(now) {
     rpm: P.rpm, redline: D.redline, limiter: P.rpmWheel >= D.redline && input.gasSm > 0.3,
     tF: P.tempF, tR: P.tempR, wF: P.wearF, wR: P.wearR, opt: D.tireOpt,
     pos: rank(P), total: G.cars.length, lap: P.prevLap + 1, laps: G.laps,
+    lastStr: P.last != null ? fmt(P.last) : "", session: G.t > 0 ? fmt(G.t) : "", curT: G.t > 0 ? G.t - P.lapStart : 0,
+    delta: (P.bestSplits && P.cur && P.cur[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] != null && P.bestSplits[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] != null) ? P.cur[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] - P.bestSplits[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] : null,
+    gasV: input.gasSm || 0, brakeV: input.brakeSm || 0,
     timeStr: G.t > 0 ? fmt(G.t - P.lapStart) : "", bestStr: P.best != null ? fmt(P.best) : "", surface: P.onGrass && P.vx > 3
   };
   if (G.paused) { S.msg = "ПАУЗА"; S.msgSize = 80; }
