@@ -1,7 +1,9 @@
 "use strict";
 /* Замкнутая трасса. Строится из гладкой замкнутой кривой, затем пересэмплируется
    по длине дуги. Кривизна K > 0 — правый поворот; трасса идёт по часовой стрелке. */
-const ROAD_W = 12, KERB_W = 1.2, RUNOFF = 12, WALL_D = ROAD_W / 2 + KERB_W + RUNOFF;
+let ROAD_W = 12, KERB_W = 1.2, RUNOFF = 12, WALL_D = ROAD_W / 2 + KERB_W + RUNOFF;
+/* Свободная езда: дорога шире (36 м), чтобы было где дрифтить. Вызывать до buildTrack/buildWorld. */
+function setRoadWidth(wide) { ROAD_W = wide ? 36 : 12; RUNOFF = wide ? 8 : 12; WALL_D = ROAD_W / 2 + KERB_W + RUNOFF; }
 
 /* Трассы по опорным точкам (метры, по часовой стрелке, старт на прямой в начале списка).
    env — оформление окружения: sky, fog, ground, trees ("pine"|"palm"|"none"), city, wall. */

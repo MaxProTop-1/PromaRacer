@@ -5,7 +5,7 @@
    Компьютер: W газ, S тормоз, A / D руль, E / Q передачи, R, V, N, Пробел (помощники), Esc, Enter (стрелки и X / Z тоже работают). */
 const STEER_KEYS = "bcfghijklmtuy";
 const input = {
-  gas: 0, brake: 0, steerTarget: 0, steer: 0, kbLeft: 0, kbRight: 0,
+  gas: 0, brake: 0, hand: 0, steerTarget: 0, steer: 0, kbLeft: 0, kbRight: 0,
   lastKey: "—", steerSeen: false, pendingGear: 0, pendingReset: false, pendingView: false, pendingAuto: false,
   pendingPause: false, pendingAssist: false, onEnter: null
 };
@@ -26,7 +26,7 @@ function onKey(e, down) {
   else if (k === "n") { if (down) input.pendingAuto = true; }
   else if (k === "Escape") { if (down) input.pendingPause = true; }
   else if (k === " ") { if (down) input.pendingAssist = true; }
-  else if (k === "Shift") input.hb = down ? 1 : 0;
+  else if (k === "Shift" || k === ".") input.hand = down ? 1 : 0;
   else if (down && k.length === 1 && STEER_KEYS.indexOf(k) >= 0) {
     input.steerTarget = (STEER_KEYS.indexOf(k) - 6) / 6;
     input.steerSeen = true;
@@ -156,7 +156,6 @@ function setupTouchUI() {
   holdButton("tBrake", () => { input.brake = 1; input.lastKey = "touch:тормоз"; }, () => { input.brake = 0; });
   holdButton("tL", () => { input.kbLeft = 1; }, () => { input.kbLeft = 0; });
   holdButton("tR", () => { input.kbRight = 1; }, () => { input.kbRight = 0; });
-  holdButton("tHand", () => { input.hb = 1; }, () => { input.hb = 0; });
   holdButton("tUp", () => { input.pendingGear = 1; });
   holdButton("tDown", () => { input.pendingGear = -1; });
   holdButton("tPause", () => { input.pendingPause = true; });
@@ -165,5 +164,6 @@ function setupTouchUI() {
   holdButton("tReset", () => { input.pendingReset = true; });
   holdButton("tCal", () => { calibrateTilt(); recenter(); });
   holdButton("tAssist", () => { input.pendingAssist = true; });
+  holdButton("tHand", () => { input.hand = 1; input.lastKey = "touch:ручник"; }, () => { input.hand = 0; });
 }
 setupTouchUI();

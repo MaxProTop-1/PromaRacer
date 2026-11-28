@@ -763,7 +763,7 @@ function drawScreenHud(S, now, show, full, touch) {
     g.fillStyle = "#e10600"; g.fillRect(x, y + r, u * 0.25, h - 2 * r);
   };
   const top = touch ? u * 3.6 : u * 1.0, pad = u * 0.9;
-  if (S.free) {
+  if (S.open) {
     const D = S.drift || { cur: 0, total: 0, best: 0, mult: 1, ang: 0, active: false };
     panel(u, top, u * 17, u * 6.4);
     lab("DRIFT", u + pad, top + u * 1.2);
@@ -784,7 +784,7 @@ function drawScreenHud(S, now, show, full, touch) {
   // справа: круг / позиция / время / дельта
   const pw = u * 14, px = W - u - pw;
   panel(px, top, pw, u * 9.2);
-  lab("LAP", px + pad, top + u * 1.2); txt(Math.min(S.lap, S.laps) + "/" + S.laps, px + pad, top + u * 3.2, u * 1.6, "#fff", "left", true);
+  lab("LAP", px + pad, top + u * 1.2); txt(S.free ? String(S.lap) : Math.min(S.lap, S.laps) + "/" + S.laps, px + pad, top + u * 3.2, u * 1.6, "#fff", "left", true);
   lab("POS", px + pw * 0.5, top + u * 1.2); txt("P" + S.pos + "/" + S.total, px + pw * 0.5, top + u * 3.2, u * 1.6, "#fff", "left", true);
   lab("SESSION", px + pad, top + u * 4.9); txt(S.session || "00:00.000", px + pad, top + u * 6.2, u * 1.05, "#dfe4ea", "left", true);
   lab("CURRENT LAP", px + pad, top + u * 7.3); txt(tm(S.curT), px + pad, top + u * 8.6, u * 1.05, "#fff", "left", true);
@@ -842,7 +842,7 @@ function drawHud(S, now) {
   g.fillStyle = "#9aa"; g.font = "18px system-ui"; g.fillText("износ " + Math.round(Math.max(S.wF, S.wR) * 100) + "%", 200, 226);
   // гонка
   g.textAlign = "right"; g.font = "bold 24px system-ui"; g.fillStyle = "#fff";
-  g.fillText("P" + S.pos + "/" + S.total + "  круг " + Math.min(S.lap, S.laps) + "/" + S.laps, W - 16, 196);
+  g.fillText("P" + S.pos + "/" + S.total + "  круг " + (S.free ? S.lap : Math.min(S.lap, S.laps) + "/" + S.laps), W - 16, 196);
   g.font = "22px system-ui"; g.fillStyle = S.surface ? "#ff6a3a" : "#9aa";
   g.fillText(S.surface ? "ВНЕ ТРАССЫ" : (S.timeStr + (S.bestStr ? "  лучш " + S.bestStr : "")), W - 16, 226);
   R.hudTex.needsUpdate = true;
@@ -860,7 +860,7 @@ function drawHud(S, now) {
 
 /* ---------- Кадр ---------- */
 function carPose(c) {                                  // положение и курс машины: по трассе или в мировых координатах города
-  if (FREE) return { x: c.x, z: c.z, hd: c.hd };
+  if (OPENW) return { x: c.x, z: c.z, hd: c.hd };
   const t = trackAt(c.s);
   return { x: t.x + Math.cos(t.h) * c.d, z: t.z + Math.sin(t.h) * c.d, hd: t.h + c.psi };
 }
@@ -903,7 +903,7 @@ function renderFrame(playerCar, cars, S, dt, vr) {
       if (WET && c.vx > 22) emitSpray(mesh === R.playerExt ? R.player : mesh, c);
     }
     updateSpray(dt);
-    if (FREE) {
+    if (OPENW) {
       if ((playerCar.hb || Math.abs(playerCar.alphaR) > 0.2 || playerCar.spinR) && playerCar.vx > 4) emitSmoke(playerCar);
       updateSmoke(dt);
     }

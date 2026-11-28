@@ -55,6 +55,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   click("go", { to: "setup" }); click("opt", { scope: "g", k: "mode", v: '"time"' }); click("startOffline"); await sleep(50);
   ok(run("G.cars.length") === 1, "режим на время: без соперников");
   run("toMenu()");
+  // свободная езда: город, без соперников, трасса возвращается после выхода
+  click("go", { to: "setup" }); click("opt", { scope: "g", k: "trackIdx", v: "1" }); click("opt", { scope: "g", k: "mode", v: '"free"' });
+  ok(els.setup.innerHTML.indexOf("Дрифт-настройка") > 0, "в выборе режима есть дрифт-настройка");
+  click("startOffline"); await sleep(50);
+  ok(run("G.mode") === "free" && run("TRACKS[G.trackIdx].id") === "city" && run("G.cars.length") === 1 && run("ROAD_W") === 36, "свободная езда: город, один игрок, широкая дорога");
+  run("toMenu()");
+  ok(run("G.trackIdx") === 1 && run("ROAD_W") === 36, "после выхода выбранная трасса восстановлена");
+  click("go", { to: "setup" }); click("opt", { scope: "g", k: "mode", v: '"race"' }); click("startOffline"); await sleep(50);
+  ok(run("ROAD_W") === 12, "в обычной гонке дорога снова 12 м"); run("toMenu()");
   // онлайн: два игрока (имитация комнаты)
   ctx.__q = { update() { return ctx.__q; }, eq() { return ctx.__q; }, then(f) { f && f(); } };
   ctx.__sb = { from: () => ctx.__q, rpc: () => Promise.resolve({ data: null }) };

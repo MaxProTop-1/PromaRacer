@@ -127,7 +127,7 @@ function rProfile() {
   $("profile").innerHTML = back("lobby", "Профиль") + `<div class="body"><div class="card" style="max-width:520px">
     <div class="row"><div class="avatar">${esc((p.username || "?")[0].toUpperCase())}</div><div><b style="font-size:20px">${esc(p.username)}</b><div class="small">${NET.guest ? "Гостевой профиль хранится на этом устройстве" : "Аккаунт онлайн"}</div></div></div>
     <h3>Статистика</h3>
-    <div class="row"><div class="pill">Гонок: <b>${p.races}</b></div><div class="pill">Побед: <b>${p.wins}</b></div><div class="pill"><span class="coin">●</span><b>${coinStr(p.coins)}</b></div><div class="pill">Машин: <b>${ownedIds().length}</b></div></div>
+    <div class="row"><div class="pill">Гонок: <b>${p.races}</b></div><div class="pill">Побед: <b>${p.wins}</b></div><div class="pill"><span class="coin">●</span><b>${coinStr(p.coins)}</b></div><div class="pill">Машин: <b>${ownedIds().length}</b></div><div class="pill">Рекорд дрифта: <b>${Math.round(G.driftBest || 0)}</b></div></div>
     <h3>Промокод</h3><div class="row"><input id="promo" placeholder="Введи код" autocomplete="off" autocapitalize="off" style="flex:1;min-width:0;padding:10px;border-radius:8px;border:1px solid #444;background:#1a1d24;color:#fff"><button class="btn sm" data-act="promo">Применить</button></div>
     <h3>Лучшие круги</h3>${rows || '<div class="small">Пока нет заездов.</div>'}
     <div style="margin-top:14px">${NET.guest ? '<button class="btn" data-act="login">Войти / создать аккаунт</button>' : '<button class="btn alt" data-act="logout">Выйти из аккаунта</button>'}</div>
@@ -148,7 +148,7 @@ function rSettings() {
     <h3>Cardputer</h3><div id="mon"></div>
     <div class="small" style="margin-top:6px">Сначала подключи «PromaRacer Wheel» в Bluetooth телефона.</div>
     <h3>Клавиатура</h3>
-    <div class="small">W газ · S тормоз · A / D руль · E / Q передачи · N авто/ручная · R на трассу · V вид · Пробел помощники · Shift ручник (свободная езда) · Esc пауза · Enter выход после финиша.<br>Cardputer: 9 газ · o тормоз · 0 / p передачи · руль наклоном.</div>
+    <div class="small">W газ · S тормоз · A / D руль · E / Q передачи · N авто/ручная · R на трассу · V вид · Пробел помощники · Shift ручник · Esc пауза · Enter выход после финиша.<br>Cardputer: 9 газ · o тормоз · 0 / p передачи · руль наклоном.</div>
   </div></div><div class="checker"></div>`;
   updateMon();
 }
@@ -169,15 +169,22 @@ function rPlay() {
 }
 
 /* ---------- Выбор режима (офлайн) ---------- */
-function setupFields(cfg, scope, edit) {
+function setupFields(cfg, scope, edit, noFree) {
   const row = (title, items, key) => `<h3>${title}</h3>` + (edit ? optRow(items, key, cfg[key], scope) : `<div class="small" style="color:#fff">${items.find(i => i.v === cfg[key]) ? items.find(i => i.v === cfg[key]).l : ""}</div>`);
-  return row("Режим", [{ l: "🏁 Гонка", v: "race" }, { l: "⏱ На время (без столкновений)", v: "time" }].concat(scope === "g" ? [{ l: "🏙 Свободная езда (город, дрифт)", v: "free" }] : []), "mode") +
-    (cfg.mode === "free" ? "" : row("Трасса", TRACKS.map((t, i) => ({ l: t.name, v: i })), "trackIdx") +
-    row("Круги", [1, 3, 5, 10].map(n => ({ l: n + " кр.", v: n })), "laps"));
+  const modes = [{ l: "🏁 Гонка", v: "race" }, { l: "⏱ На время (без столкновений)", v: "time" }];
+  if (!noFree) modes.push({ l: "🌆 Свободная езда (город, дрифт)", v: "free" }, { l: "🏙 Открытый город (без трассы)", v: "open" });
+  if (cfg.mode === "free" || cfg.mode === "open") return row("Режим", modes, "mode");
+  return row("Режим", modes, "mode") +
+    row("Трасса", TRACKS.map((t, i) => ({ l: t.name, v: i })), "trackIdx") +
+    row("Круги", [1, 3, 5, 10].map(n => ({ l: n + " кр.", v: n })), "laps");
 }
 function rSetup() {
   $("setup").innerHTML = back("play", "Выбор режима") + `<div class="body"><div class="card" style="max-width:640px">
     ${setupFields(G, "g", true)}
+    ${G.mode === "open" ? `<h3>Открытый город</h3><div class="small" style="color:#fff">Город 1,1 км без трассы: улицы, кварталы, большая площадь в центре и здания, в которые можно врезаться. Задний ход (тормоз у остановки), ручник (Shift / кнопка РУЧНИК), дым и следы шин. Очки за дрифт: угол × скорость, серия до ×6.</div>` : ""}
+    ${G.mode === "free" ? `<h3>Город Proma Streets</h3><div class="small" style="color:#fff">Без кругов, соперников и столкновений. Дорога шире, катайся где хочешь и дрифти: очки идут за боковое скольжение, серия растёт до ×5, удар об стену обнуляет её.</div>
+      <h3>Дрифт-настройка</h3>${optRow([{ l: "Вкл: задний привод, мягче зад", v: true }, { l: "Выкл: машина как есть", v: false }], "driftTune", G.driftTune)}
+      <div class="small" style="margin-top:6px">Газ + руль, ручник (Shift или кнопка РУЧНИК) для заноса. Помощники в этом режиме выключены. Рекорд серии: <b style="color:#ffcc00">${Math.round(G.driftBest || 0)}</b></div>` : ""}
     ${G.mode === "race" ? "<h3>Соперники (ИИ)</h3>" + optRow([0, 3, 5, 7].map(n => ({ l: n === 0 ? "Один" : n + " соп.", v: n })), "opp", G.opp) : ""}
     <div style="margin-top:16px;display:flex;gap:10px;align-items:center"><button class="btn big" style="font-size:24px;padding:12px 40px" data-act="startOffline">Старт</button><span class="small">${esc(CARS[G.carId].name)}</span></div>
   </div></div><div class="checker"></div>`;
@@ -199,7 +206,7 @@ function rRoom() {
     <div class="body"><div class="row" style="align-items:flex-start">
       <div class="card" style="flex:1;min-width:250px"><h3 style="margin-top:0">Игроки ${mem.length}/8</h3>${list}</div>
       <div class="card" style="flex:1;min-width:250px">
-        ${c.mode ? `${setupFields({ mode: c.mode, trackIdx: c.track, laps: c.laps }, "room", edit).replace(/data-k="trackIdx"/g, 'data-k="track"')}
+        ${c.mode ? `${setupFields({ mode: c.mode, trackIdx: c.track, laps: c.laps }, "room", edit, true).replace(/data-k="trackIdx"/g, 'data-k="track"')}
         <h3>Машины</h3>${edit ? optRow([{ l: "Свои", v: "" }, { l: "Все GT3", v: "gt3" }, { l: "Все F3", v: "f3" }], "lock", c.lock || "", "room") : `<div class="small" style="color:#fff">${c.lock ? "Все " + esc(CARS[c.lock].name) : "Свои"}</div>`}` : '<div class="small">Ждём настройки хоста…</div>'}
         <div style="margin-top:14px">${host ? `<button class="btn big" style="font-size:24px;padding:12px 40px" data-act="hostStart" ${mem.length < 2 ? "disabled" : ""}>Старт</button>${mem.length < 2 ? '<div class="small" style="margin-top:6px">Нужен хотя бы ещё один игрок. Отправь ему код.</div>' : ""}` : '<div class="small">Хост запустит гонку.</div>'}</div>
       </div></div></div><div class="checker"></div>`;
@@ -317,7 +324,11 @@ const ACT = {
     const e = await NET.spend(upgCost(id, lvl), g); if (e) { toast(e); return; }
     UI.syncBg(); rGarage();
   },
-  startOffline: () => { G.online = false; G.roster = null; G.lockCar = null; saveSettings(); syncCar(); begin(); },
+  startOffline: () => {
+    G.online = false; G.roster = null; G.lockCar = null; saveSettings(); syncCar();
+    if (G.mode === "free") { G.tBack = G.trackIdx; G.trackIdx = Math.max(0, TRACKS.findIndex(t => t.id === "city")); }
+    begin();
+  },
   async createRoom() {
     const code = roomCode();
     const cfg = { mode: "race", track: G.trackIdx, laps: G.laps, lock: "" };

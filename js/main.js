@@ -3,7 +3,7 @@
 const HSTEP = 1 / 120;
 const G = {
   state: "menu", vr: true, touch: false, screen: "", mode: "race", online: false, roster: null, lockCar: null, rewarded: false,
-  coinsEarned: 0, assist: true, gyroLook: true, flash: "", touchSteer: "wheel", tiltInv: false, carId: "f1", trackIdx: 0, laps: 3, opp: 5, auto: true, weather: "clear", fx: "cine",
+  coinsEarned: 0, assist: true, gyroLook: true, flash: "", touchSteer: "wheel", tiltInv: false, carId: "f1", trackIdx: 0, laps: 3, opp: 5, auto: true, weather: "clear", fx: "cine", driftTune: true, driftBest: 0, tBack: null, dr: null,
   cars: [], player: null, t: 0, accum: 0, paused: false, msgT: 0, msgText: "", autoMsgT: 0, bests: {}
 };
 const AI_COLORS = [0x1d6fe0, 0xf2a900, 0x20a050, 0xa020c0, 0xe0e0e0, 0xff6a00, 0x00b8c8];
@@ -12,7 +12,7 @@ try { Object.assign(G, JSON.parse(localStorage.getItem("promaracer.settings") ||
 if (!G.screen) { try { G.screen = ("ontouchstart" in window || navigator.maxTouchPoints > 0) ? "touch" : "mono"; } catch (e) { G.screen = "mono"; } }
 function saveSettings() {
   try {
-    localStorage.setItem("promaracer.settings", JSON.stringify({ screen: G.screen, mode: G.mode, carId: G.carId, trackIdx: G.trackIdx, laps: G.laps, opp: G.opp, auto: G.auto, touchSteer: G.touchSteer, tiltInv: G.tiltInv, assist: G.assist, gyroLook: G.gyroLook, weather: G.weather, fx: G.fx, steerVer: 2 }));
+    localStorage.setItem("promaracer.settings", JSON.stringify({ screen: G.screen, mode: G.mode, carId: G.carId, trackIdx: G.trackIdx, laps: G.laps, opp: G.opp, auto: G.auto, touchSteer: G.touchSteer, tiltInv: G.tiltInv, assist: G.assist, gyroLook: G.gyroLook, weather: G.weather, fx: G.fx, driftTune: G.driftTune, driftBest: G.driftBest, steerVer: 2 }));
     localStorage.setItem("promaracer.bests", JSON.stringify(G.bests));
   } catch (e) {}
 }
@@ -28,13 +28,13 @@ function playerDef() {
 function placeOnGrid(c, slot) { c.s = -10 - 9 * slot; c.d = slot % 2 ? 2.6 : -2.6; c.prevLap = -1; c.lapStart = 0; }
 
 /* Свободная езда по городу: без кругов и соперников, очки за дрифт. */
-function startFree() {
-  FREE = true; WET = G.weather === "rain" ? 1 : 0;
+function startOpen() {
+  OPENW = true; WET = G.weather === "rain" ? 1 : 0;
   buildCity(); buildCityWorld();
   if (R.skid) { R.skidN = 0; R.skid.count = 0; R.skidLast = [null, null]; }
   const D = playerDef(), p = newVehicle(D); p.auto = G.auto; p.assist = false; p.name = "Ты";
   p.x = CITY.spawn.x; p.z = CITY.spawn.z; p.hd = CITY.spawn.hd; p.prevLap = -1; p.lapStart = 0;
-  G.cars = [p]; G.player = p; G.free = true; G.t = 0; G.accum = 0; G.paused = false; G.state = "race"; G.rewarded = true; G.coinsEarned = 0; G.netT = 0;
+  G.cars = [p]; G.player = p; G.open = true; G.t = 0; G.accum = 0; G.paused = false; G.state = "race"; G.rewarded = true; G.coinsEarned = 0; G.netT = 0;
   G.drift = { cur: 0, total: 0, best: 0, mult: 1, ang: 0, active: false, hold: 0, chain: 0, idle: 0 };
   setAICars([]); buildCockpit(D); setGhost(D); R.ghost.visible = false;
   $("results").style.display = "none";
@@ -42,9 +42,9 @@ function startFree() {
   G.msgT = 3; G.msgText = "СВОБОДНАЯ ЕЗДА";
 }
 
-function freeStep(h) {
+function openStep(h) {
   const P = G.player, dr = G.drift;
-  const inp = { steer: input.steer, gas: input.gasSm, brake: input.brakeSm, hb: input.hb };
+  const inp = { steer: input.steer, gas: input.gasSm, brake: input.brakeSm, hand: input.hand };
   physStep(P, inp, h);
   const hit = freeCollide(P, CITY.boxes);
   G.t += h;
@@ -64,8 +64,9 @@ function freeStep(h) {
 }
 
 function startRace() {
-  if (G.mode === "free" && !G.online) { startFree(); return; }
-  FREE = false; G.free = false;
+  if (G.mode === "open" && !G.online) { startOpen(); return; }
+  OPENW = false; G.open = false;
+  setRoadWidth(G.mode === "free");
   WET = (!G.online && G.weather === "rain") ? 1 : 0;
   buildTrack(TRACKS[G.trackIdx]);
   buildWorld();
@@ -80,7 +81,7 @@ function startRace() {
     }
     me = G.roster.find(r => r.me);
   } else {
-    const n = G.mode === "time" ? 0 : G.opp;
+    const n = G.mode === "time" || G.mode === "free" ? 0 : G.opp;
     for (let i = 0; i < n; i++) {
       const c = newVehicle(D); c.auto = true; c.color = AI_COLORS[i % AI_COLORS.length]; c.isAI = true;
       c.ai = newAI(D, 1.0 - i * 0.012 - (i % 3) * 0.006, [-2.2, 2.2][i % 2]);
@@ -89,9 +90,13 @@ function startRace() {
     }
     me = { slot: n, name: "Ты" };
   }
-  const p = newVehicle(D); p.auto = G.auto; p.assist = G.assist; p.name = me.name || "Ты"; placeOnGrid(p, me.slot);
+  const free = G.mode === "free" && !G.online;
+  const PD = free && G.driftTune ? Object.assign({}, D, { drive: "rwd" }) : D;           // дрифт-настройка: задний привод
+  const p = newVehicle(PD); p.auto = G.auto; p.assist = free ? false : G.assist;
+  if (free && G.driftTune) { p.drift = true; p.rearK = 0.88; }
+  driftReset(); p.name = me.name || "Ты"; placeOnGrid(p, me.slot);
   cars.push(p);
-  G.cars = cars; G.player = p; G.t = -6; G.accum = 0; G.paused = false; G.state = "grid"; G.rewarded = false; G.coinsEarned = 0; G.netT = 0;
+  G.cars = cars; G.player = p; G.t = -6; G.accum = 0; G.paused = false; G.state = "grid"; if (G.mode === "free") G.t = -1.5; G.rewarded = false; G.coinsEarned = 0; G.netT = 0;
   p.best = (G.bests[G.carId + "|" + TRACKS[G.trackIdx].id]) || null;
   setAICars(cars.filter(c => c !== p));
   buildCockpit(D); setGhost(D);
@@ -112,7 +117,7 @@ function laneAhead(c) {
   return best ? { o: best, gap } : null;
 }
 function collide() {
-  if (G.mode === "time") return;
+  if (G.mode === "time" || G.mode === "free") return;
   const L = TRACK.L, cs = G.cars;
   for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) {
     const a = cs[i], b = cs[j];
@@ -145,8 +150,45 @@ function onRemoteState(m) {
   for (const c of G.cars) if (c.uid === m.u) { m.at = performance.now(); c.tgt = m; if (c.s < -20 && m.s > c.s) c.s = m.s; break; }
 }
 
+/* ---------- Дрифт: очки за боковое скольжение задней оси ---------- */
+function driftReset() { G.dr = { total: 0, cur: 0, t: 0, mult: 1, grace: 0, active: false, crash: 0, bank: 0, bankT: 0, hudKey: "" }; }
+function driftStep(P, h) {
+  const d = G.dr; if (!d) return;
+  const a = Math.abs(P.alphaR), v = P.vx;
+  const sliding = a > 0.17 && v > 7 && !P.wall && !P.onGrass && Math.abs(P.psi) < 1.8;
+  d.crash = Math.max(0, d.crash - h); d.bankT = Math.max(0, d.bankT - h);
+  if (P.wall > 0 && (d.active || d.cur > 0)) { d.cur = 0; d.active = false; d.t = 0; d.mult = 1; d.grace = 0; d.crash = 1.5; return; }
+  if (sliding) {
+    d.active = true; d.grace = 1.2; d.t += h;
+    d.mult = 1 + Math.min(4, Math.floor(d.t / 2));
+    d.cur += 20 * v * Math.min(a, 0.8) * d.mult * h;
+  } else if (d.active) {
+    d.grace -= h;
+    if (d.grace <= 0) {
+      const got = Math.round(d.cur); d.total += got; d.bank = got; d.bankT = 2.5;
+      if (got > G.driftBest) { G.driftBest = got; saveSettings(); }
+      d.cur = 0; d.active = false; d.t = 0; d.mult = 1;
+    }
+  }
+}
+function driftHud() {
+  const el = $("drift"), d = G.dr;
+  if (!el) return;
+  if (G.mode !== "free" || !d || G.state === "menu") { el.style.display = "none"; return; }
+  let cls = "", label, val;
+  if (d.crash > 0) { cls = "crash"; label = "АВАРИЯ"; val = "серия потеряна"; }
+  else if (d.active) { cls = "on"; label = "ДРИФТ"; val = "<i>x" + d.mult + "</i>" + Math.round(d.cur); }
+  else if (d.bankT > 0) { label = "СЕРИЯ ЗАЧТЕНА"; val = "+" + d.bank; }
+  else { label = "ДРИФТ"; val = "—"; }
+  const key = cls + label + val + Math.round(d.total) + G.driftBest;
+  if (key === d.hudKey) return;
+  d.hudKey = key;
+  el.className = cls; el.style.display = "block";
+  el.innerHTML = '<div class="dl">' + label + '</div><div class="dv">' + val + '</div><div class="ds">Всего ' + Math.round(d.total) + ' · рекорд серии ' + Math.round(G.driftBest) + "</div>";
+}
+
 function simStep(h) {
-  if (G.free) { freeStep(h); return; }
+  if (G.open) { openStep(h); return; }
   const cs = G.cars, P = G.player;
   if (G.state === "grid") {                 // стоим на решётке, двигатель крутится
     G.t += h;
@@ -171,11 +213,12 @@ function simStep(h) {
       c.draft = lead && lead.gap < 25 ? 0.22 * (1 - lead.gap / 25) : 0;
     } else {
       const fin = G.state === "finish";
-      inp = { steer: input.steer, gas: fin ? 0 : input.gasSm, brake: fin ? Math.max(0.3, input.brakeSm) : input.brakeSm };
+      inp = { hand: input.hand, steer: input.steer, gas: fin ? 0 : input.gasSm, brake: fin ? Math.max(0.3, input.brakeSm) : input.brakeSm };
       const lead = laneAhead(c);
       c.draft = lead && lead.gap < 25 ? 0.22 * (1 - lead.gap / 25) : 0;
     }
     physStep(c, inp, h);
+    if (c === P && G.mode === "free") driftStep(P, h);
     if (c === P && c.s >= 0 && G.t > 0) {                 // отсечки по кругу для дельты к лучшему
       const fr = Math.floor(((c.s % TRACK.L) / TRACK.L) * 100);
       (P.cur || (P.cur = []))[fr] = G.t - c.lapStart;
@@ -187,12 +230,12 @@ function simStep(h) {
       if (c.prevLap >= 0) {
         const lt = G.t - c.lapStart;
         if (c === P) {
-          if (P.best == null || lt < P.best) { P.best = lt; G.bests[G.carId + "|" + TRACKS[G.trackIdx].id] = lt; saveSettings(); }
+          if (G.mode !== "free" && (P.best == null || lt < P.best)) { P.best = lt; G.bests[G.carId + "|" + TRACKS[G.trackIdx].id] = lt; saveSettings(); }
           if (P.best === lt && P.cur) { P.bestSplits = P.cur.slice(); P.bestTr = (P.tr || []).slice(); }
           P.last = lt; P.cur = []; P.tr = [];
         }
         c.lapStart = G.t;
-        if (li >= G.laps && c.finishT == null) c.finishT = G.t;
+        if (G.mode !== "free" && li >= G.laps && c.finishT == null) c.finishT = G.t;
       }
       c.prevLap = li;
       if (c !== P || li > 0) c.lapStart = G.t;
@@ -279,7 +322,7 @@ function frame(now) {
     pos: rank(P), total: G.cars.length, lap: P.prevLap + 1, laps: G.laps,
     lastStr: P.last != null ? fmt(P.last) : "", session: G.t > 0 ? fmt(G.t) : "", curT: G.t > 0 ? G.t - P.lapStart : 0,
     delta: (P.bestSplits && P.cur && P.cur[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] != null && P.bestSplits[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] != null) ? P.cur[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] - P.bestSplits[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] : null,
-    ghost: G.free ? null : ghostAt(P), free: !!G.free, drift: G.free ? G.drift : null,
+    ghost: G.open ? null : ghostAt(P), free: G.mode === "free", open: !!G.open, drift: G.open ? G.drift : null,
     gasV: input.gasSm || 0, brakeV: input.brakeSm || 0,
     timeStr: G.t > 0 ? fmt(G.t - P.lapStart) : "", bestStr: P.best != null ? fmt(P.best) : "", surface: P.onGrass && P.vx > 3
   };
@@ -295,6 +338,7 @@ function frame(now) {
 
   const throttle = G.state === "grid" ? input.gasSm : (G.state === "finish" ? 0 : input.gasSm);
   updateAudio(P, !G.paused, throttle);
+  driftHud();
   renderFrame(P, G.cars, S, dt, G.vr);
   if (G.touch) {
     $("tHud").textContent = Math.round(S.kmh) + " км/ч · " + S.gear + " · P" + S.pos + "/" + S.total + " · круг " + Math.min(S.lap, S.laps) + "/" + S.laps +
@@ -313,11 +357,12 @@ async function begin() {
   look.yaw = look.pitch = 0; G.gyroRef = false;
   $("touch").style.display = G.touch ? "block" : "none";
   $("tL").style.display = $("tR").style.display = G.touch && G.touchSteer === "btn" ? "block" : "none";
-  $("tHand").style.display = G.touch && G.mode === "free" && !G.online ? "block" : "none";
+  $("tHand").style.display = G.touch && (G.mode === "free" || G.mode === "open") && !G.online ? "block" : "none";
   $("tWheel").style.display = G.touch && G.touchSteer === "wheel" ? "block" : "none";
   $("tCal").style.display = G.touch && (G.touchSteer === "tilt" || gyro.enabled) ? "block" : "none";
   wheelUI.v = 0; wheelUI.held = false;
   $("tAssist").style.display = G.touch ? "block" : "none";
+  $("tHand").style.display = G.touch && (G.mode === "free" || G.mode === "open") && !G.online ? "block" : "none";
   startAudio();
   try { if (navigator.wakeLock) await navigator.wakeLock.request("screen"); } catch (e) {}
   if (typeof UI !== "undefined") UI.hide();
@@ -328,7 +373,10 @@ async function begin() {
   if (G.touch) setTimeout(calibrateTilt, 400);
 }
 function toMenu() {
-  FREE = false; G.free = false;
+  OPENW = false; G.open = false; $("tHand").style.display = "none";
+  if (G.tBack != null) { G.trackIdx = G.tBack; G.tBack = null; }
+  G.mode === "free" && $("drift") && ($("drift").style.display = "none");
+  input.hand = 0;
   if (R.hud2) R.hud2.style.display = "none";
   $("results").style.display = "none"; $("touch").style.display = "none";
   input.touchMode = false; input.gas = input.brake = input.kbLeft = input.kbRight = 0;
