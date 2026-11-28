@@ -682,6 +682,46 @@ function setAICars(list) {
 }
 
 /* ---------- Кокпит игрока ---------- */
+/* ---------- Рабочие зеркала: вид назад рисуется в текстуры и показывается на панелях в кокпите ---------- */
+function buildMirrors(def) {
+  if (R.mirrors) for (const m of R.mirrors) { R.player.remove(m.cam); R.cockpit.remove(m.mesh); R.cockpit.remove(m.frame); if (m.rt.dispose) m.rt.dispose(); }
+  R.mirrors = [];
+  const ex = def.eye[0], ey = def.eye[1], ez = def.eye[2], closed = def.look === "closed";
+  const add = (w, h, px, py, pz, ry, camPos, camRy, fov, tw, th) => {
+    const rt = new THREE.WebGLRenderTarget(tw, th, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+    const cam = new THREE.PerspectiveCamera(fov, w / h, 0.3, 1500);
+    cam.position.set(camPos[0], camPos[1], camPos[2]); cam.rotation.set(0, camRy, 0); R.player.add(cam);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: rt.texture, side: THREE.DoubleSide, fog: false }));
+    mesh.position.set(px, py, pz); mesh.rotation.y = ry; mesh.scale.x = -1;               // зеркало переворачивает картинку по горизонтали
+    const frame = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.025, h + 0.025), new THREE.MeshBasicMaterial({ color: 0x08080a, side: THREE.DoubleSide }));
+    frame.position.set(px, py, pz - 0.004); frame.rotation.y = ry;
+    R.cockpit.add(frame); R.cockpit.add(mesh);
+    R.mirrors.push({ cam, rt, mesh, frame });
+  };
+  if (closed) {
+    add(0.30, 0.085, 0, ey + 0.30, ez - 0.55, 0, [0, ey + 0.2, ez + 0.9], Math.PI, 50, 320, 96);          // салонное
+    add(0.17, 0.105, -0.98, ey + 0.05, ez - 0.40, 0.55, [-1.02, 1.0, -0.6], Math.PI - 0.22, 42, 160, 100);  // боковые
+    add(0.17, 0.105, 0.98, ey + 0.05, ez - 0.40, -0.85, [1.02, 1.0, -0.6], Math.PI + 0.22, 42, 160, 100);
+  } else {
+    add(0.13, 0.075, -0.62, ey + 0.16, ez - 0.30, 0.45, [-0.7, 0.8, -0.3], Math.PI - 0.18, 42, 128, 80);
+    add(0.13, 0.075, 0.62, ey + 0.16, ez - 0.30, -0.45, [0.7, 0.8, -0.3], Math.PI + 0.18, 42, 128, 80);
+  }
+}
+function renderMirrors(on) {
+  const r = R.renderer; if (!R.mirrors) return;
+  const show = on && R.view !== "chase";
+  for (const m of R.mirrors) { m.mesh.visible = m.frame.visible = show; }
+  if (!show) return;
+  R.mirrorTick = (R.mirrorTick || 0) + 1;
+  if (R.mirrorTick % 2) return;                                   // зеркала обновляются через кадр
+  const wasC = R.cockpit.visible, wasM = R.msgMesh.visible;
+  R.cockpit.visible = false; R.msgMesh.visible = false;
+  r.shadowMap.autoUpdate = false;
+  for (const m of R.mirrors) { r.setRenderTarget(m.rt); r.render(R.scene, m.cam); }
+  r.setRenderTarget(null); r.shadowMap.autoUpdate = true;
+  R.cockpit.visible = wasC; R.msgMesh.visible = wasM;
+}
+
 function buildCockpit(def) {
   if (R.cockpit) R.player.remove(R.cockpit);
   if (R.playerExt) R.player.remove(R.playerExt);
@@ -733,6 +773,8 @@ function buildCockpit(def) {
   // надпись по центру ветрового стекла
   R.msgMesh.position.set(ex, ey + 0.1, ez - 2.2); R.msgMesh.scale.set(1, 1, 1); R.player.add(R.msgMesh);
   R.head.position.set(ex, ey, ez);
+
+  buildMirrors(def);
 
   // внешний вид машины игрока (для вида сзади)
   R.playerExt = buildCarMesh(def, def.color); R.playerExt.visible = false; R.player.add(R.playerExt);
@@ -927,6 +969,7 @@ function renderFrame(playerCar, cars, S, dt, vr) {
     const e = playerCar.def.eye;
     R.head.position.set(e[0] - lat * 0.012, e[1] + Math.sin(now * 0.03) * 0.002 * spd, e[2] + lon * 0.01);
   }
+  renderMirrors(G.mirrors !== false);
   const fx = G.fx !== "off";
   if (fx) initPost();
   const P = fx ? R.post : null;

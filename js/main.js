@@ -3,7 +3,7 @@
 const HSTEP = 1 / 120;
 const G = {
   state: "menu", vr: true, touch: false, screen: "", mode: "race", online: false, roster: null, lockCar: null, rewarded: false,
-  coinsEarned: 0, assist: true, gyroLook: true, flash: "", touchSteer: "wheel", tiltInv: false, carId: "f1", trackIdx: 0, laps: 3, opp: 5, auto: true, weather: "clear", fx: "cine", driftTune: true, driftBest: 0, tBack: null, dr: null,
+  coinsEarned: 0, assist: true, gyroLook: true, flash: "", touchSteer: "wheel", tiltInv: false, carId: "f1", trackIdx: 0, laps: 3, opp: 5, auto: true, weather: "clear", fx: "cine", mirrors: true, driftTune: true, driftBest: 0, tBack: null, dr: null,
   cars: [], player: null, t: 0, accum: 0, paused: false, msgT: 0, msgText: "", autoMsgT: 0, bests: {}
 };
 const AI_COLORS = [0x1d6fe0, 0xf2a900, 0x20a050, 0xa020c0, 0xe0e0e0, 0xff6a00, 0x00b8c8];
@@ -12,7 +12,7 @@ try { Object.assign(G, JSON.parse(localStorage.getItem("promaracer.settings") ||
 if (!G.screen) { try { G.screen = ("ontouchstart" in window || navigator.maxTouchPoints > 0) ? "touch" : "mono"; } catch (e) { G.screen = "mono"; } }
 function saveSettings() {
   try {
-    localStorage.setItem("promaracer.settings", JSON.stringify({ screen: G.screen, mode: G.mode, carId: G.carId, trackIdx: G.trackIdx, laps: G.laps, opp: G.opp, auto: G.auto, touchSteer: G.touchSteer, tiltInv: G.tiltInv, assist: G.assist, gyroLook: G.gyroLook, weather: G.weather, fx: G.fx, driftTune: G.driftTune, driftBest: G.driftBest, steerVer: 2 }));
+    localStorage.setItem("promaracer.settings", JSON.stringify({ screen: G.screen, mode: G.mode, carId: G.carId, trackIdx: G.trackIdx, laps: G.laps, opp: G.opp, auto: G.auto, touchSteer: G.touchSteer, tiltInv: G.tiltInv, assist: G.assist, gyroLook: G.gyroLook, weather: G.weather, fx: G.fx, mirrors: G.mirrors, driftTune: G.driftTune, driftBest: G.driftBest, steerVer: 2 }));
     localStorage.setItem("promaracer.bests", JSON.stringify(G.bests));
   } catch (e) {}
 }

@@ -142,6 +142,7 @@ function rSettings() {
     <h3>Руль на телефоне</h3>${optRow([{ l: "Руль на экране", v: "wheel" }, { l: "Наклон телефона", v: "tilt" }, { l: "Кнопки ◀ ▶", v: "btn" }], "touchSteer", G.touchSteer)}
     ${optRow([{ l: "Наклон обычный", v: false }, { l: "Инверсия руля", v: true }], "tiltInv", G.tiltInv)}
     <h3>Графика</h3>${optRow([{ l: "🎬 Кино-эффекты", v: "cine" }, { l: "Простая (быстрее)", v: "off" }], "fx", G.fx)}
+    ${optRow([{ l: "🪞 Зеркала: ВКЛ", v: true }, { l: "Зеркала: ВЫКЛ (быстрее)", v: false }], "mirrors", G.mirrors)}
     <h3>Погода (офлайн)</h3>${optRow([{ l: "☀ Ясно", v: "clear" }, { l: "🌧 Дождь", v: "rain" }], "weather", G.weather)}
     <h3>Помощь</h3>${optRow([{ l: "Помощники: ВКЛ", v: true }, { l: "Помощники: ВЫКЛ", v: false }], "assist", G.assist)}
     ${optRow([{ l: "Обзор гироскопом: ВКЛ", v: true }, { l: "Обзор гироскопом: ВЫКЛ", v: false }], "gyroLook", G.gyroLook)}
