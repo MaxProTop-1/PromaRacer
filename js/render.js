@@ -675,7 +675,7 @@ function drawScreenHud(S, now, show, full, touch) {
   // справа: круг / позиция / время / дельта
   const pw = u * 14, px = W - u - pw;
   panel(px, top, pw, u * 9.2);
-  lab("LAP", px + pad, top + u * 1.2); txt(Math.min(S.lap, S.laps) + "/" + S.laps, px + pad, top + u * 3.2, u * 1.6, "#fff", "left", true);
+  lab("LAP", px + pad, top + u * 1.2); txt(S.free ? String(S.lap) : Math.min(S.lap, S.laps) + "/" + S.laps, px + pad, top + u * 3.2, u * 1.6, "#fff", "left", true);
   lab("POS", px + pw * 0.5, top + u * 1.2); txt("P" + S.pos + "/" + S.total, px + pw * 0.5, top + u * 3.2, u * 1.6, "#fff", "left", true);
   lab("SESSION", px + pad, top + u * 4.9); txt(S.session || "00:00.000", px + pad, top + u * 6.2, u * 1.05, "#dfe4ea", "left", true);
   lab("CURRENT LAP", px + pad, top + u * 7.3); txt(tm(S.curT), px + pad, top + u * 8.6, u * 1.05, "#fff", "left", true);
@@ -732,7 +732,7 @@ function drawHud(S, now) {
   g.fillStyle = "#9aa"; g.font = "18px system-ui"; g.fillText("износ " + Math.round(Math.max(S.wF, S.wR) * 100) + "%", 200, 226);
   // гонка
   g.textAlign = "right"; g.font = "bold 24px system-ui"; g.fillStyle = "#fff";
-  g.fillText("P" + S.pos + "/" + S.total + "  круг " + Math.min(S.lap, S.laps) + "/" + S.laps, W - 16, 196);
+  g.fillText("P" + S.pos + "/" + S.total + "  круг " + (S.free ? S.lap : Math.min(S.lap, S.laps) + "/" + S.laps), W - 16, 196);
   g.font = "22px system-ui"; g.fillStyle = S.surface ? "#ff6a3a" : "#9aa";
   g.fillText(S.surface ? "ВНЕ ТРАССЫ" : (S.timeStr + (S.bestStr ? "  лучш " + S.bestStr : "")), W - 16, 226);
   R.hudTex.needsUpdate = true;

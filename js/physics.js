@@ -73,7 +73,7 @@ function physStep(c, inp, dt) {
   // --- шины ---
   c.tireF = tireFactor(c.tempF, D.tireOpt, c.wearF);
   c.tireR = tireFactor(c.tempR, D.tireOpt, c.wearR);
-  const muF = D.mu * c.tireF * muSurf, muR = D.mu * c.tireR * muSurf * 1.05;
+  const muF = D.mu * c.tireF * muSurf, muR = D.mu * c.tireR * muSurf * 1.05 * (c.rearK || 1);
   c.gripF = muF; c.gripR = muR;
 
   // --- руль ---
@@ -83,8 +83,16 @@ function physStep(c, inp, dt) {
   else {
     // руль, зависящий от скорости: полный поворот = ~110% предельного бокового ускорения
     // (с прижимной силой предел растёт со скоростью), на малой скорости — полный угол колёс
-    const dMax = Math.min(D.steerLock, 1.1 * L * aMaxCar / Math.max(vxp * vxp, 16));
+    let dMax = Math.min(D.steerLock, 1.1 * L * aMaxCar / Math.max(vxp * vxp, 16));
+    // дрифт: обычный руль точный, а когда задняя ось скользит (|alphaR| > ~0.2), открывается угол для контрруля
+    if (c.drift) dMax += (Math.min(D.steerLock, 0.34) - dMax) * Math.max(0, Math.min(1, Math.max((Math.abs(c.alphaR) - 0.04) / 0.16, (inp.hand || 0))));
     deltaWanted = inp.steer * dMax;
+    if (c.drift && vxp > 5) {            // авто-контрруль: колёса сами смотрят туда, куда едет машина; игрок задаёт угол дрифта рулём
+      const beta = Math.atan2(c.vy, vxp), k = Math.min(1, Math.abs(c.alphaR) / 0.12);
+      deltaWanted += Math.max(-0.34, Math.min(0.34, 0.9 * beta)) * k;
+      const lim = Math.min(D.steerLock, 0.4);
+      deltaWanted = Math.max(-lim, Math.min(lim, deltaWanted));
+    }
   }
   const maxRate = 2.2;                          // рад/с
   const dd = Math.max(-maxRate * dt, Math.min(maxRate * dt, deltaWanted - c.delta));
@@ -123,9 +131,9 @@ function physStep(c, inp, dt) {
   const driveF = D.drive === "awd" ? 0.4 : 0, driveR = 1 - driveF;
   const bf = 0.62;                                                       // баланс тормозов
   let FxF = Fdrive * driveF - D.brakeMax * brakeEff * bf;
-  let FxR = Fdrive * driveR - D.brakeMax * brakeEff * (1 - bf);
+  let FxR = Fdrive * driveR - D.brakeMax * brakeEff * (1 - bf) - D.brakeMax * 0.6 * (inp.hand || 0);   // ручник: только задняя ось
   const limF = muF * FzF, limR = muR * FzR;
-  const absOn = D.abs || c.assist;
+  const absOn = (D.abs || c.assist) && !(inp.hand > 0.1);
   c.lockF = c.lockR = c.spinR = false;
   let latF = 1, latR = 1;
   // "круг трения": пока машина занята поворотом (u = доля бокового предела), на тягу и торможение остаётся
@@ -156,6 +164,7 @@ function physStep(c, inp, dt) {
   const Ftot = FxR + FxF * cd - FyF * sd - drag - roll;
   const Fytot = FyR + FyF * cd + FxF * sd;
   let Mz = lf * (FyF * cd + FxF * sd) - lr * FyR;
+  if (c.drift && vxp > 5 && Math.abs(c.alphaR) > 0.5) Mz -= D.Iz * 2.2 * c.r * Math.min(1, (Math.abs(c.alphaR) - 0.5) / 0.4);   // не даём уйти в вертушку
   if (c.assist && vxp > 8 && Math.abs(c.alphaR) > 0.05) {      // ESC: тянем рыскание к тому, что хочет водитель
     const rMax = aMaxCar / vxp, rT = Math.max(-rMax, Math.min(rMax, vxp * Math.tan(delta) / L));
     Mz += D.Iz * 14 * Math.max(-1, Math.min(1, rT - c.r));
