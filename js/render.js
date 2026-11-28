@@ -84,6 +84,74 @@ function initRender() {
   R.grass.rotation.x = -Math.PI / 2; R.grass.position.y = -0.03; R.scene.add(R.grass);
 }
 
+/* ---------- Кинематографичный пост-процессинг ----------
+   Сцена рисуется в текстуру, затем один полноэкранный проход даёт: свечение ярких мест (bloom), радиальное
+   размытие и хроматическую аберрацию на скорости, плёночную цветокоррекцию, виньетку и зерно. */
+const POST_FRAG = `
+precision highp float;
+uniform sampler2D tD; uniform vec2 res; uniform float time, speed, vr, wet;
+varying vec2 vUv;
+vec2 cl(vec2 p){ if(vr>0.5){ float x0 = p.x<0.5 ? 0.0 : 0.5; p.x = clamp(p.x, x0+0.002, x0+0.498); } else p.x = clamp(p.x,0.002,0.998); p.y = clamp(p.y,0.002,0.998); return p; }
+float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
+void main(){
+  vec2 uv = vUv, e = uv; vec2 sc = vec2(1.0);
+  if (vr > 0.5) { e = vec2(fract(uv.x*2.0), uv.y); sc = vec2(0.5, 1.0); }
+  vec2 c = e - 0.5; float r2 = dot(c, c);
+  vec2 off = c * sc * (0.0018 + 0.012 * speed) * (1.0 + r2 * 5.0);          // хроматическая аберрация
+  vec3 col = vec3(0.0); float tot = 0.0;
+  for (int i = 0; i < 6; i++) {                                              // радиальное размытие от центра
+    float t = float(i) / 5.0;
+    vec2 o = -c * sc * speed * speed * 0.10 * t * (0.4 + r2 * 3.0);
+    col.r += texture2D(tD, cl(uv + o + off)).r;
+    col.g += texture2D(tD, cl(uv + o)).g;
+    col.b += texture2D(tD, cl(uv + o - off)).b;
+    tot += 1.0;
+  }
+  col /= tot;
+  vec3 bl = vec3(0.0);                                                        // свечение: яркие области размываются
+  for (int i = 0; i < 8; i++) {
+    float a = float(i) * 0.7854;
+    vec2 d = vec2(cos(a), sin(a)) / res;
+    bl += max(texture2D(tD, cl(uv + d * 7.0)).rgb - 0.62, 0.0);
+    bl += max(texture2D(tD, cl(uv + d * 18.0)).rgb - 0.62, 0.0);
+  }
+  col += bl * 0.085;
+  col = mix(col, aces(col * 1.12), 0.55);                                     // кинопленочная кривая
+  float l = dot(col, vec3(0.299, 0.587, 0.114));
+  col = mix(vec3(l), col, 1.12 - wet * 0.18);                                 // насыщенность
+  col *= mix(vec3(0.95, 1.0, 1.06), vec3(1.06, 1.0, 0.93), smoothstep(0.15, 0.85, l));  // тени в бирюзовый, свет в тёплый
+  col = (col - 0.5) * 1.06 + 0.5;
+  float vg = smoothstep(0.95, 0.25, length(c * vec2(1.15, 1.0)));
+  col *= mix(1.0, vg, 0.55 + 0.25 * speed);
+  col += (hash(e * res + time) - 0.5) * 0.045;                                // зерно
+  gl_FragColor = vec4(col, 1.0);
+}`;
+function initPost() {
+  if (R.post !== undefined) return;
+  R.post = null;
+  try {
+    const pr = R.renderer.getPixelRatio(), W = Math.max(2, innerWidth * pr | 0), H = Math.max(2, innerHeight * pr | 0);
+    const opts = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBAFormat };
+    const ms = R.renderer.capabilities && R.renderer.capabilities.isWebGL2 && THREE.WebGLMultisampleRenderTarget;
+    const rt = ms ? new THREE.WebGLMultisampleRenderTarget(W, H, opts) : new THREE.WebGLRenderTarget(W, H, opts);
+    if (ms) rt.samples = 4;
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { tD: { value: rt.texture }, res: { value: new THREE.Vector2(W, H) }, time: { value: 0 }, speed: { value: 0 }, vr: { value: 0 }, wet: { value: 0 } },
+      vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+      fragmentShader: POST_FRAG, depthTest: false, depthWrite: false
+    });
+    const scene = new THREE.Scene(), cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); quad.frustumCulled = false; scene.add(quad);
+    R.post = { rt, mat, scene, cam, W, H };
+  } catch (e) { R.post = null; }
+}
+function resizePost() {
+  const P = R.post; if (!P) return;
+  const pr = R.renderer.getPixelRatio(); P.W = Math.max(2, innerWidth * pr | 0); P.H = Math.max(2, innerHeight * pr | 0);
+  P.rt.setSize(P.W, P.H); P.mat.uniforms.res.value.set(P.W, P.H);
+}
+
 /* ---------- Трасса ---------- */
 function trackStrip(inner, outer, y, tex, vTile, scene) {
   const N = TRACK.N, pos = new Float32Array((N + 1) * 6), uv = new Float32Array((N + 1) * 4);
@@ -591,6 +659,34 @@ function renderFrame(playerCar, cars, S, dt, vr) {
   drawHud(S, now);
 
   const w = innerWidth, h = innerHeight, r = R.renderer;
+  const spd = Math.min(1, playerCar.vx / 95);
+  const fov = 80 + 14 * spd * spd + (R.view === "chase" ? 4 : 0);                 // скорость растягивает картинку
+  if (R.camL.fov !== fov) { R.camL.fov = R.camR.fov = fov; }
+  if (R.cockpit && !chase) {                                                       // тело качается от перегрузок и неровностей
+    const lat = Math.max(-2, Math.min(2, (playerCar.ay || 0) / 9.81)), lon = Math.max(-2, Math.min(2, (playerCar.ax || 0) / 9.81));
+    const e = playerCar.def.eye;
+    R.head.position.set(e[0] - lat * 0.012, e[1] + Math.sin(now * 0.03) * 0.002 * spd, e[2] + lon * 0.01);
+  }
+  const fx = G.fx !== "off";
+  if (fx) initPost();
+  const P = fx ? R.post : null;
+  if (P) {
+    const pr = r.getPixelRatio(), u = P.mat.uniforms;
+    u.time.value = (now * 0.001) % 100; u.speed.value = spd; u.vr.value = vr ? 1 : 0; u.wet.value = WET;
+    r.setRenderTarget(P.rt); P.rt.scissorTest = true;
+    if (vr) {
+      const asp = (w / 2) / h; R.camL.aspect = R.camR.aspect = asp; R.camL.updateProjectionMatrix(); R.camR.updateProjectionMatrix();
+      P.rt.viewport.set(0, 0, P.W / 2, P.H); P.rt.scissor.set(0, 0, P.W / 2, P.H); r.render(R.scene, R.camL);
+      P.rt.viewport.set(P.W / 2, 0, P.W / 2, P.H); P.rt.scissor.set(P.W / 2, 0, P.W / 2, P.H); r.render(R.scene, R.camR);
+    } else {
+      R.camL.aspect = w / h; R.camL.updateProjectionMatrix(); R.camL.position.x = 0;
+      P.rt.viewport.set(0, 0, P.W, P.H); P.rt.scissor.set(0, 0, P.W, P.H); r.render(R.scene, R.camL);
+      R.camL.position.x = -IPD / 2;
+    }
+    r.setRenderTarget(null); r.setScissorTest(false); r.setViewport(0, 0, w, h);
+    r.render(P.scene, P.cam);
+    return;
+  }
   r.setScissorTest(true);
   if (vr) {
     const asp = (w / 2) / h; R.camL.aspect = R.camR.aspect = asp; R.camL.updateProjectionMatrix(); R.camR.updateProjectionMatrix();
@@ -602,5 +698,5 @@ function renderFrame(playerCar, cars, S, dt, vr) {
     R.camL.position.x = -IPD / 2;
   }
 }
-function resizeRender() { if (R.renderer) R.renderer.setSize(innerWidth, innerHeight); }
+function resizeRender() { if (R.renderer) { R.renderer.setSize(innerWidth, innerHeight); resizePost(); } }
 addEventListener("resize", resizeRender);
