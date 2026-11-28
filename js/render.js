@@ -98,7 +98,7 @@ void main(){
   vec2 uv = vUv, e = uv; vec2 sc = vec2(1.0);
   if (vr > 0.5) { e = vec2(fract(uv.x*2.0), uv.y); sc = vec2(0.5, 1.0); }
   vec2 c = e - 0.5; float r2 = dot(c, c);
-  vec2 off = c * sc * (0.0018 + 0.012 * speed) * (1.0 + r2 * 5.0);          // хроматическая аберрация
+  vec2 off = c * sc * (0.0005 + 0.006 * speed) * (1.0 + r2 * 5.0);          // хроматическая аберрация
   vec3 col = vec3(0.0); float tot = 0.0;
   for (int i = 0; i < 6; i++) {                                              // радиальное размытие от центра
     float t = float(i) / 5.0;
@@ -124,7 +124,7 @@ void main(){
   col = (col - 0.5) * 1.06 + 0.5;
   float vg = smoothstep(0.95, 0.25, length(c * vec2(1.15, 1.0)));
   col *= mix(1.0, vg, 0.55 + 0.25 * speed);
-  col += (hash(e * res + time) - 0.5) * 0.045;                                // зерно
+  col += (hash(e * res + time) - 0.5) * 0.03;                                 // зерно
   gl_FragColor = vec4(col, 1.0);
 }`;
 function initPost() {
@@ -648,36 +648,45 @@ function drawScreenHud(S, now, show, full, touch) {
   const dpr = Math.min(2, window.devicePixelRatio || 1), W = innerWidth, H = innerHeight;
   if (cv.width !== (W * dpr | 0)) { cv.width = W * dpr | 0; cv.height = H * dpr | 0; }
   const g = R.hud2ctx; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
-  const u = Math.max(10, Math.min(W, H * 1.6) / 60), F = "600 " , mono = "ui-monospace,Menlo,monospace";
+  const u = Math.max(9, Math.min(W, H * 1.6) / 62), mono = "system-ui,-apple-system,sans-serif";
   const tm = t => { if (t == null || !isFinite(t)) return "--:--.---"; const m = Math.floor(t / 60), s = t - m * 60; return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s.toFixed(3); };
-  const txt = (s, x, y, size, col, al, bold) => { g.font = (bold ? "700 " : "500 ") + size + "px " + mono; g.textAlign = al || "left"; g.fillStyle = "#000a"; g.fillText(s, x + 1, y + 1); g.fillStyle = col; g.fillText(s, x, y); };
-  const top = touch ? u * 4.2 : u * 1.2;
-  // лучший / последний
-  txt("BEST", u, top + u * 0.9, u * 0.7, "#8fa3b8"); txt(S.bestStr || "--:--.---", u, top + u * 2.7, u * 1.7, "#fff", "left", true);
-  txt("LAST", u * 11.5, top + u * 0.9, u * 0.7, "#8fa3b8"); txt(S.lastStr || "--:--.---", u * 11.5, top + u * 2.7, u * 1.7, "#fff", "left", true);
-  // справа: круг, время сессии, текущий круг, дельта
-  const rx = W - u;
-  g.fillStyle = "#0008"; g.fillRect(rx - u * 9.5, top - u * 0.4, u * 9.5, u * 9);
-  txt("LAP", rx - u * 9, top + u * 0.9, u * 0.65, "#8fa3b8"); txt(Math.min(S.lap, S.laps) + "/" + S.laps, rx - u * 9, top + u * 2.6, u * 1.7, "#fff", "left", true);
-  txt("POS", rx - u * 4, top + u * 0.9, u * 0.65, "#8fa3b8"); txt("P" + S.pos + "/" + S.total, rx - u * 4, top + u * 2.6, u * 1.7, "#fff", "left", true);
-  txt("SESSION", rx - u * 9, top + u * 4.2, u * 0.6, "#8fa3b8"); txt(S.session || "00:00.000", rx - u * 9, top + u * 5.6, u * 1.25, "#fff", "left", true);
-  txt("CURRENT LAP", rx - u * 9, top + u * 7.0, u * 0.6, "#8fa3b8"); txt(tm(S.curT), rx - u * 9, top + u * 8.2, u * 1.25, "#fff", "left", true);
-  if (S.delta != null) txt((S.delta >= 0 ? "+" : "-") + Math.abs(S.delta).toFixed(3), rx - u * 0.3, top + u * 5.6, u * 1.4, S.delta > 0 ? "#ff4d4d" : "#4dff88", "right", true);
+  const txt = (s, x, y, size, col, al, bold) => { g.font = (bold ? "italic 800 " : "700 ") + size + "px " + mono; g.textAlign = al || "left"; g.fillStyle = "#0009"; g.fillText(s, x + 1, y + 1); g.fillStyle = col; g.fillText(s, x, y); };
+  const lab = (s, x, y, al) => { g.font = "700 " + u * 0.62 + "px " + mono; g.textAlign = al || "left"; g.fillStyle = "#9aa3b2"; g.fillText(s.split("").join(String.fromCharCode(8202)), x, y); };
+  const panel = (x, y, w, h) => {                       // тёмное стекло с красной полосой слева, как в лобби
+    const r = u * 0.6; g.fillStyle = "rgba(14,16,22,0.68)"; g.beginPath();
+    g.moveTo(x + r, y); g.lineTo(x + w - r, y); g.quadraticCurveTo(x + w, y, x + w, y + r); g.lineTo(x + w, y + h - r); g.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    g.lineTo(x + r, y + h); g.quadraticCurveTo(x, y + h, x, y + h - r); g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y); g.fill();
+    g.strokeStyle = "rgba(255,255,255,0.14)"; g.lineWidth = 1; g.stroke();
+    g.fillStyle = "#e10600"; g.fillRect(x, y + r, u * 0.25, h - 2 * r);
+  };
+  const top = touch ? u * 3.6 : u * 1.0, pad = u * 0.9;
+  // слева: лучший и последний круг
+  panel(u, top, u * 19, u * 4.6);
+  lab("BEST", u + pad, top + u * 1.2); txt(S.bestStr || "--:--.---", u + pad, top + u * 3.4, u * 1.6, "#fff", "left", true);
+  lab("LAST", u * 11, top + u * 1.2); txt(S.lastStr || "--:--.---", u * 11, top + u * 3.4, u * 1.6, "#fff", "left", true);
+  // справа: круг / позиция / время / дельта
+  const pw = u * 14, px = W - u - pw;
+  panel(px, top, pw, u * 9.2);
+  lab("LAP", px + pad, top + u * 1.2); txt(Math.min(S.lap, S.laps) + "/" + S.laps, px + pad, top + u * 3.2, u * 1.6, "#fff", "left", true);
+  lab("POS", px + pw * 0.5, top + u * 1.2); txt("P" + S.pos + "/" + S.total, px + pw * 0.5, top + u * 3.2, u * 1.6, "#fff", "left", true);
+  lab("SESSION", px + pad, top + u * 4.9); txt(S.session || "00:00.000", px + pad, top + u * 6.2, u * 1.05, "#dfe4ea", "left", true);
+  lab("CURRENT LAP", px + pad, top + u * 7.3); txt(tm(S.curT), px + pad, top + u * 8.6, u * 1.05, "#fff", "left", true);
+  if (S.delta != null) txt((S.delta >= 0 ? "+" : "-") + Math.abs(S.delta).toFixed(3), px + pw - pad * 0.6, top + u * 6.2, u * 1.25, S.delta > 0 ? "#ff5a4d" : "#43e88a", "right", true);
   if (!full) return;
   // круглый тахометр
   const R0 = Math.min(u * 6.2, H * 0.2), cx = touch ? W / 2 : W - R0 - u * 2.2, cy = H - R0 - u * 1.8;
   const a0 = 0.75 * Math.PI, a1 = 2.25 * Math.PI, fr = Math.min(1, S.rpm / S.redline);
-  g.fillStyle = "#050709b0"; g.beginPath(); g.arc(cx, cy, R0 + u * 0.5, 0, 7); g.fill();
+  g.fillStyle = "rgba(14,16,22,0.72)"; g.beginPath(); g.arc(cx, cy, R0 + u * 0.5, 0, 7); g.fill(); g.lineWidth = 1; g.strokeStyle = "rgba(255,255,255,0.16)"; g.stroke();
   g.lineWidth = u * 0.5; g.lineCap = "butt";
   g.strokeStyle = "#2a323c"; g.beginPath(); g.arc(cx, cy, R0 - u * 0.4, a0, a1); g.stroke();
-  g.strokeStyle = "#ff2b2b"; g.beginPath(); g.arc(cx, cy, R0 - u * 0.4, a0 + (a1 - a0) * 0.88, a1); g.stroke();
+  g.strokeStyle = "#e10600"; g.beginPath(); g.arc(cx, cy, R0 - u * 0.4, a0 + (a1 - a0) * 0.88, a1); g.stroke();
   g.strokeStyle = S.limiter ? "#4aa8ff" : "#f4f6f8"; g.beginPath(); g.arc(cx, cy, R0 - u * 0.4, a0, a0 + (a1 - a0) * fr); g.stroke();
   g.lineWidth = 1.5; g.strokeStyle = "#cfd6dd"; g.fillStyle = "#cfd6dd";
   const steps = Math.round(S.redline / 1000);
   for (let k = 0; k <= steps; k++) {
     const a = a0 + (a1 - a0) * (k * 1000 / S.redline), c = Math.cos(a), s = Math.sin(a);
     g.beginPath(); g.moveTo(cx + c * (R0 - u * 1.2), cy + s * (R0 - u * 1.2)); g.lineTo(cx + c * (R0 - u * 0.8), cy + s * (R0 - u * 0.8)); g.stroke();
-    if (steps <= 16) { g.font = "500 " + u * 0.7 + "px " + mono; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(String(k), cx + c * (R0 - u * 2.1), cy + s * (R0 - u * 2.1)); g.textBaseline = "alphabetic"; }
+    if (steps <= 16) { g.font = "700 " + u * 0.7 + "px " + mono; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(String(k), cx + c * (R0 - u * 2.1), cy + s * (R0 - u * 2.1)); g.textBaseline = "alphabetic"; }
   }
   txt(String(Math.round(S.kmh)), cx, cy + u * 0.9, u * 3.4, "#fff", "center", true);
   txt("км/ч", cx, cy + u * 2.3, u * 0.8, "#8fa3b8", "center");

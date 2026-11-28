@@ -278,6 +278,7 @@ async function begin() {
   if (G.touch) setTimeout(calibrateTilt, 400);
 }
 function toMenu() {
+  if (R.hud2) R.hud2.style.display = "none";
   $("results").style.display = "none"; $("touch").style.display = "none";
   input.touchMode = false; input.gas = input.brake = input.kbLeft = input.kbRight = 0;
   G.state = "menu"; updateAudio(G.player || { def: CARS.gtr, rpm: 1000, vx: 0, alphaF: 0, alphaR: 0, shiftT: 0, rpmWheel: 0 }, false, 0);

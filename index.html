@@ -124,20 +124,25 @@
 
   /* ---------- игра ---------- */
   #touch{position:fixed;inset:0;z-index:4;display:none;pointer-events:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-  #touch button{pointer-events:auto;touch-action:none;position:absolute;border:2px solid rgba(255,255,255,.55);background:rgba(20,20,24,.45);color:#fff;font-weight:700;border-radius:18px;padding:0;-webkit-tap-highlight-color:transparent}
-  #touch button.down{background:rgba(225,6,0,.65)}
-  #tGas{right:max(14px,env(safe-area-inset-right));bottom:14px;width:21vw;height:52vh;font-size:20px}
-  #tBrake{right:calc(max(14px,env(safe-area-inset-right)) + 23vw);bottom:14px;width:15vw;height:34vh;font-size:15px}
-  #tL{left:max(14px,env(safe-area-inset-left));bottom:14px;width:19vw;height:40vh;font-size:34px}
-  #tR{left:calc(max(14px,env(safe-area-inset-left)) + 21vw);bottom:14px;width:19vw;height:40vh;font-size:34px}
-  #tUp,#tDown{width:13vw;height:17vh;font-size:22px;right:max(14px,env(safe-area-inset-right))}
-  #tUp{bottom:calc(52vh + 28px)}
-  #tDown{bottom:calc(52vh + 28px + 19vh)}
-  #tTop button{top:8px;width:46px;height:42px;font-size:20px;border-radius:12px}
-  #tPause{left:calc(50% - 151px)}#tView{left:calc(50% - 99px)}#tAuto{left:calc(50% - 47px);font-size:13px!important}#tReset{left:calc(50% + 5px)}#tCal{left:calc(50% + 57px)}#tAssist{left:calc(50% + 109px);font-size:12px!important}
-  #tWheel{position:absolute;left:max(14px,env(safe-area-inset-left));bottom:6px;width:46vh;height:46vh;max-width:40vw;max-height:40vw;touch-action:none;pointer-events:auto;display:none}
+  #touch button{pointer-events:auto;touch-action:none;position:absolute;color:#fff;font:italic 800 16px system-ui,-apple-system,sans-serif;letter-spacing:1px;text-transform:uppercase;padding:0;
+    border:1px solid rgba(255,255,255,.2);border-radius:14px;background:rgba(14,16,22,.7);box-shadow:0 2px 12px rgba(0,0,0,.55);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);-webkit-tap-highlight-color:transparent}
+  #touch button.down{background:linear-gradient(135deg,var(--red),#ff5a2a);border-color:#ff8a70}
+  #touch svg.ic{width:22px;height:22px;fill:none;stroke:#fff;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+  /* педали: ребристая поверхность и цветная полоса снизу */
+  #tGas,#tBrake{background-image:repeating-linear-gradient(180deg,rgba(255,255,255,.07) 0 2px,transparent 2px 14px);display:flex;align-items:flex-end;justify-content:center;padding-bottom:12px!important}
+  #tGas{right:max(14px,env(safe-area-inset-right));bottom:14px;width:21vw;height:52vh;font-size:18px;box-shadow:inset 0 -7px 0 #2ad47a,0 2px 12px rgba(0,0,0,.55)}
+  #tBrake{right:calc(max(14px,env(safe-area-inset-right)) + 23vw);bottom:14px;width:15vw;height:34vh;font-size:14px;box-shadow:inset 0 -7px 0 var(--red),0 2px 12px rgba(0,0,0,.55)}
+  #tL,#tR{bottom:14px;width:19vw;height:40vh;font-size:30px}
+  #tL{left:max(14px,env(safe-area-inset-left))}#tR{left:calc(max(14px,env(safe-area-inset-left)) + 21vw)}
+  /* подрулевые лепестки − / + по бокам руля */
+  #tUp,#tDown{width:54px;height:66px;font-size:26px;border-radius:10px;clip-path:polygon(14px 0,100% 0,calc(100% - 14px) 100%,0 100%);bottom:calc(min(46vh,40vw) + 10px)}
+  #tDown{left:max(14px,env(safe-area-inset-left))}
+  #tUp{left:calc(max(14px,env(safe-area-inset-left)) + min(46vh,40vw) - 54px)}
+  #tTop{position:absolute;top:8px;left:50%;transform:translateX(-50%);display:flex;gap:8px;pointer-events:none}
+  #tTop button{position:static;width:54px;height:42px;font-size:13px;display:flex;align-items:center;justify-content:center;border-radius:12px}
+  #tWheel{position:absolute;left:max(14px,env(safe-area-inset-left));bottom:6px;width:min(46vh,40vw);height:min(46vh,40vw);touch-action:none;pointer-events:auto;display:none}
   #tWheel svg{width:100%;height:100%;filter:drop-shadow(0 4px 8px rgba(0,0,0,.6));pointer-events:none}
-  #tHud{position:absolute;top:56px;left:0;right:0;text-align:center;font:700 15px ui-monospace,Menlo,monospace;text-shadow:0 0 4px #000,0 0 4px #000}
+  #tHud{display:none}
   #mon{font:13px/1.45 ui-monospace,Menlo,monospace;background:#111;border:1px solid #333;border-radius:10px;padding:6px 12px}
   #results{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(0,0,0,.86);z-index:6;text-align:center;padding:12px;overflow:auto}
   table{border-collapse:collapse;min-width:260px}
@@ -193,8 +198,8 @@
     <path d="M-8 3 q8 -9 16 0" fill="none" stroke="#b9bcc2" stroke-width="3" stroke-linecap="round"/>
   </svg></div>
   <button id="tL">◀</button><button id="tR">▶</button>
-  <button id="tUp">▲</button><button id="tDown">▼</button>
-  <div id="tTop"><button id="tPause">⏸</button><button id="tView">👁</button><button id="tAuto">A/M</button><button id="tReset">↺</button><button id="tCal">⌖</button><button id="tAssist">ABS</button></div>
+  <button id="tUp">+</button><button id="tDown">−</button>
+  <div id="tTop"><button id="tPause"><svg class="ic" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button><button id="tView"><svg class="ic" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button><button id="tAuto">A/M</button><button id="tReset"><svg class="ic" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v5h5"/></svg></button><button id="tCal"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></svg></button><button id="tAssist">ABS</button></div>
 </div>
 <div id="pauseMenu" style="position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.7);z-index:7;text-align:center"><h2 style="margin:0;color:#fff;font-style:italic">ПАУЗА</h2><div class="row c"><button id="bResume" class="btn">Продолжить</button><button id="bQuit" class="btn alt">В меню</button></div></div>
 <div id="results">
