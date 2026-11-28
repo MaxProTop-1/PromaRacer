@@ -153,7 +153,7 @@ function resizePost() {
 }
 
 /* ---------- Трасса ---------- */
-function trackStrip(inner, outer, y, tex, vTile, scene) {
+function trackStrip(inner, outer, y, tex, vTile, scene, glossy) {
   const N = TRACK.N, pos = new Float32Array((N + 1) * 6), uv = new Float32Array((N + 1) * 4);
   for (let i = 0; i <= N; i++) {
     const j = i % N, c = Math.cos(TRACK.H[j]), s = Math.sin(TRACK.H[j]);
@@ -167,7 +167,9 @@ function trackStrip(inner, outer, y, tex, vTile, scene) {
   g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
   g.setIndex(idx); g.computeVertexNormals();
-  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide }));
+  const mat = glossy && R.env ? new THREE.MeshStandardMaterial({ map: tex, side: THREE.DoubleSide, roughness: WET ? 0.16 : 0.78, metalness: WET ? 0.25 : 0.0, envMap: R.env, envMapIntensity: WET ? 1.15 : 0.25 })
+    : new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide });
+  const m = new THREE.Mesh(g, mat);
   scene.add(m); return m;
 }
 function wallStrip(side, h, tex, vTile, scene) {
@@ -196,7 +198,7 @@ function applyEnv(env) {
   env = env || { sky: SKY, fog: 0xb9d3e6, ground: 0x3f7a2c };
   if (WET) env = Object.assign({}, env, { sky: shadeHex(0x7d8794, 1), fog: 0x8c949e, ground: shadeHex(env.ground, 0.7) });
   R.scene.background = new THREE.Color(env.sky);
-  R.scene.fog = new THREE.Fog(env.fog, WET ? 60 : 150, WET ? 650 : 1300);
+  R.scene.fog = new THREE.Fog(env.fog, WET ? 40 : 90, WET ? 520 : 1100);
   if (R.sun) R.sun.intensity = WET ? 0.25 : 0.85;
   makeSky(env);
   makeRain();
@@ -252,7 +254,7 @@ function buildWorld() {
     else { g.fillStyle = "#e8e8e8"; g.fillRect(0, 0, w, h); g.fillStyle = "#d01010"; g.fillRect(0, 0, w / 2, h); g.fillStyle = "#222"; g.fillRect(0, h - 4, w, 4); }
   });
   const e = ROAD_W / 2;
-  trackStrip(-e, e, 0.01, roadTex, tile(12), W);
+  trackStrip(-e, e, 0.01, roadTex, tile(12), W, true);
   trackStrip(e, e + KERB_W, 0.02, kerbTex, tile(6), W);
   trackStrip(-e - KERB_W, -e, 0.02, kerbTex, tile(6), W);
   trackStrip(e + KERB_W, e + KERB_W + 2, 0.005, runTex, tile(8), W);
@@ -278,6 +280,20 @@ function buildWorld() {
 
   // окружение: лес, пальмы или городская застройка
   W.traverse(o => { if (o.isMesh) o.receiveShadow = true; });
+  if (env && !env.city) {                                // холмы на горизонте тонут в дымке
+    let cx = 0, cz = 0, R0 = 0;
+    for (let k = 0; k < TRACK.N; k++) { cx += TRACK.X[k]; cz += TRACK.Z[k]; }
+    cx /= TRACK.N; cz /= TRACK.N;
+    for (let k = 0; k < TRACK.N; k++) R0 = Math.max(R0, Math.hypot(TRACK.X[k] - cx, TRACK.Z[k] - cz));
+    const hills = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 7), lam(shadeHex(env.ground, 0.8)), 70);
+    let hs = 99; const hr = () => (hs = (hs * 1664525 + 1013904223) >>> 0) / 4294967296;
+    const hm = new THREE.Matrix4(), hq = new THREE.Quaternion(), hsc = new THREE.Vector3(), hp = new THREE.Vector3();
+    for (let k = 0; k < 70; k++) {
+      const a = k / 70 * Math.PI * 2 + hr() * 0.1, rr = R0 + 500 + hr() * 700, w = 180 + hr() * 260, h = 70 + hr() * 190;
+      hsc.set(w, h, w); hm.compose(hp.set(cx + Math.sin(a) * rr, h / 2 - 4, cz - Math.cos(a) * rr), hq, hsc); hills.setMatrixAt(k, hm);
+    }
+    W.add(hills);
+  }
   const kind = env ? (env.city ? "city" : env.trees) : "pine";
   let seed = 4242; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3();
@@ -286,18 +302,35 @@ function buildWorld() {
     const i = Math.floor(rnd() * TRACK.N), side = rnd() < 0.5 ? -1 : 1, off = side * (WALL_D + minOff + rnd() * span);
     return [TRACK.X[i] + Math.cos(TRACK.H[i]) * off, TRACK.Z[i] + Math.sin(TRACK.H[i]) * off];
   };
-  if (kind === "pine" || kind === "palm") {
-    const count = kind === "pine" ? 1500 : 500, palm = kind === "palm";
+  if (kind === "pine") {                              // густой хвойный лес: ярусные ели, плотнее у трассы
+    const count = 2600, tr = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.22, 0.38, 4, 6), lam(0x3b2a1c), count);
+    const tiers = [[2.9, 4.2, 4.2], [2.2, 3.8, 6.6], [1.4, 3.4, 8.8]].map(t => { const m = new THREE.InstancedMesh(new THREE.ConeGeometry(t[0], t[1], 8), lam(0xffffff), count); m.userData.y = t[2]; return m; });
+    const col = new THREE.Color();
+    let placed = 0;
+    for (let tries = 0; tries < 14000 && placed < count; tries++) {
+      const i = Math.floor(rnd() * TRACK.N), side = rnd() < 0.5 ? -1 : 1, off = side * (WALL_D + 3 + Math.pow(rnd(), 1.7) * 150);
+      const x = TRACK.X[i] + Math.cos(TRACK.H[i]) * off, z = TRACK.Z[i] + Math.sin(TRACK.H[i]) * off;
+      if (!farFrom(x, z, WALL_D + 2.5)) continue;
+      const s = 0.8 + rnd() * 1.1; sc.set(s, s, s);
+      m4.compose(p.set(x, 2 * s, z), q, sc); tr.setMatrixAt(placed, m4);
+      col.setHSL(0.30 + rnd() * 0.06, 0.38 + rnd() * 0.2, (WET ? 0.10 : 0.14) + rnd() * 0.07);
+      for (const t of tiers) { m4.compose(p.set(x, t.userData.y * s, z), q, sc); t.setMatrixAt(placed, m4); t.setColorAt(placed, col); }
+      placed++;
+    }
+    tr.count = placed; for (const t of tiers) t.count = placed;
+    W.add(tr, ...tiers);
+  } else if (kind === "palm") {
+    const count = 500, palm = true;
     const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(palm ? 0.18 : 0.25, 0.35, palm ? 7 : 3, 6), lam(palm ? 0x8a6a45 : 0x5a3b22), count);
     const crown = new THREE.InstancedMesh(palm ? new THREE.SphereGeometry(2.4, 7, 5) : new THREE.ConeGeometry(2.2, 7, 7), lam(palm ? 0x3f9a3a : 0x1f5a2a), count);
     let placed = 0;
     for (let tries = 0; tries < 6000 && placed < count; tries++) {
-      const [x, z] = spot(6, palm ? 60 : 110);
+      const [x, z] = spot(6, 60);
       if (!farFrom(x, z, WALL_D + 5)) continue;
       const s = 0.8 + rnd() * 0.9; sc.set(s, s, s);
-      m4.compose(p.set(x, (palm ? 3.5 : 1.5) * s, z), q, sc); trunk.setMatrixAt(placed, m4);
-      if (palm) sc.set(s, s * 0.45, s);
-      m4.compose(p.set(x, (palm ? 7.2 : 6.5) * s, z), q, sc); crown.setMatrixAt(placed, m4);
+      m4.compose(p.set(x, 3.5 * s, z), q, sc); trunk.setMatrixAt(placed, m4);
+      sc.set(s, s * 0.45, s);
+      m4.compose(p.set(x, 7.2 * s, z), q, sc); crown.setMatrixAt(placed, m4);
       placed++;
     }
     trunk.count = crown.count = placed;
