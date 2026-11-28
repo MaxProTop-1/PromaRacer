@@ -139,7 +139,7 @@ function rSettings() {
   $("settings").innerHTML = back("lobby", "Настройки") + `<div class="body"><div class="card" style="max-width:640px">
     <h3 style="margin-top:0">Экран</h3>${optRow([{ l: "Телефон, касанием", v: "touch" }, { l: "VR очки", v: "vr" }, { l: "Один экран", v: "mono" }], "screen", G.screen)}
     <h3>Коробка</h3>${optRow([{ l: "Авто", v: true }, { l: "Ручная", v: false }], "auto", G.auto)}
-    <h3>Руль на телефоне</h3>${optRow([{ l: "Наклон телефона", v: "tilt" }, { l: "Кнопки ◀ ▶", v: "btn" }], "touchSteer", G.touchSteer)}
+    <h3>Руль на телефоне</h3>${optRow([{ l: "Руль на экране", v: "wheel" }, { l: "Наклон телефона", v: "tilt" }, { l: "Кнопки ◀ ▶", v: "btn" }], "touchSteer", G.touchSteer)}
     ${optRow([{ l: "Наклон обычный", v: false }, { l: "Инверсия руля", v: true }], "tiltInv", G.tiltInv)}
     <h3>Погода (офлайн)</h3>${optRow([{ l: "☀ Ясно", v: "clear" }, { l: "🌧 Дождь", v: "rain" }], "weather", G.weather)}
     <h3>Помощь</h3>${optRow([{ l: "Помощники: ВКЛ", v: true }, { l: "Помощники: ВЫКЛ", v: false }], "assist", G.assist)}

@@ -135,6 +135,8 @@
   #tDown{bottom:calc(52vh + 28px + 19vh)}
   #tTop button{top:8px;width:46px;height:42px;font-size:20px;border-radius:12px}
   #tPause{left:calc(50% - 151px)}#tView{left:calc(50% - 99px)}#tAuto{left:calc(50% - 47px);font-size:13px!important}#tReset{left:calc(50% + 5px)}#tCal{left:calc(50% + 57px)}#tAssist{left:calc(50% + 109px);font-size:12px!important}
+  #tWheel{position:absolute;left:max(14px,env(safe-area-inset-left));bottom:6px;width:46vh;height:46vh;max-width:40vw;max-height:40vw;touch-action:none;pointer-events:auto;display:none}
+  #tWheel svg{width:100%;height:100%;filter:drop-shadow(0 4px 8px rgba(0,0,0,.6));pointer-events:none}
   #tHud{position:absolute;top:56px;left:0;right:0;text-align:center;font:700 15px ui-monospace,Menlo,monospace;text-shadow:0 0 4px #000,0 0 4px #000}
   #mon{font:13px/1.45 ui-monospace,Menlo,monospace;background:#111;border:1px solid #333;border-radius:10px;padding:6px 12px}
   #results{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(0,0,0,.86);z-index:6;text-align:center;padding:12px;overflow:auto}
@@ -178,10 +180,23 @@
 <div id="touch">
   <div id="tHud"></div>
   <button id="tBrake">ТОРМОЗ</button><button id="tGas">ГАЗ</button>
+  <div id="tWheel"><svg id="tWheelSvg" viewBox="-100 -100 200 200">
+    <circle r="88" fill="none" stroke="#1b1c20" stroke-width="17"/>
+    <circle r="88" fill="none" stroke="#3a3c43" stroke-width="2" stroke-dasharray="3 4" opacity=".8"/>
+    <path d="M-88 0 A88 88 0 0 1 88 0" fill="none" stroke="#2a2c32" stroke-width="3" opacity=".0"/>
+    <rect x="-5" y="-97" width="10" height="18" rx="2" fill="#e10600"/>
+    <path d="M-80 -8 L-26 -14 L-26 14 L-80 12 Z" fill="#17181c" stroke="#2c2e35" stroke-width="2"/>
+    <path d="M80 -8 L26 -14 L26 14 L80 12 Z" fill="#17181c" stroke="#2c2e35" stroke-width="2"/>
+    <path d="M-16 20 L16 20 L22 78 L-22 78 Z" fill="#17181c" stroke="#2c2e35" stroke-width="2"/>
+    <circle r="27" fill="#101114" stroke="#3a3c43" stroke-width="3"/>
+    <circle r="16" fill="#1c1d22" stroke="#555a63" stroke-width="2"/>
+    <path d="M-8 3 q8 -9 16 0" fill="none" stroke="#b9bcc2" stroke-width="3" stroke-linecap="round"/>
+  </svg></div>
   <button id="tL">◀</button><button id="tR">▶</button>
   <button id="tUp">▲</button><button id="tDown">▼</button>
   <div id="tTop"><button id="tPause">⏸</button><button id="tView">👁</button><button id="tAuto">A/M</button><button id="tReset">↺</button><button id="tCal">⌖</button><button id="tAssist">ABS</button></div>
 </div>
+<div id="pauseMenu" style="position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.7);z-index:7;text-align:center"><h2 style="margin:0;color:#fff;font-style:italic">ПАУЗА</h2><div class="row c"><button id="bResume" class="btn">Продолжить</button><button id="bQuit" class="btn alt">В меню</button></div></div>
 <div id="results">
   <h1>РЕЗУЛЬТАТ</h1>
   <table id="resList"></table>

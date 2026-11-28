@@ -3,16 +3,16 @@
 const HSTEP = 1 / 120;
 const G = {
   state: "menu", vr: true, touch: false, screen: "", mode: "race", online: false, roster: null, lockCar: null, rewarded: false,
-  coinsEarned: 0, assist: true, gyroLook: true, flash: "", touchSteer: "tilt", tiltInv: false, carId: "f1", trackIdx: 0, laps: 3, opp: 5, auto: true, weather: "clear",
+  coinsEarned: 0, assist: true, gyroLook: true, flash: "", touchSteer: "wheel", tiltInv: false, carId: "f1", trackIdx: 0, laps: 3, opp: 5, auto: true, weather: "clear",
   cars: [], player: null, t: 0, accum: 0, paused: false, msgT: 0, msgText: "", autoMsgT: 0, bests: {}
 };
 const AI_COLORS = [0x1d6fe0, 0xf2a900, 0x20a050, 0xa020c0, 0xe0e0e0, 0xff6a00, 0x00b8c8];
 
-try { Object.assign(G, JSON.parse(localStorage.getItem("promaracer.settings") || "{}")); G.bests = JSON.parse(localStorage.getItem("promaracer.bests") || "{}"); } catch (e) {}
+try { Object.assign(G, JSON.parse(localStorage.getItem("promaracer.settings") || "{}")); G.bests = JSON.parse(localStorage.getItem("promaracer.bests") || "{}"); if (G.steerVer !== 2) G.touchSteer = "wheel"; } catch (e) {}
 if (!G.screen) { try { G.screen = ("ontouchstart" in window || navigator.maxTouchPoints > 0) ? "touch" : "mono"; } catch (e) { G.screen = "mono"; } }
 function saveSettings() {
   try {
-    localStorage.setItem("promaracer.settings", JSON.stringify({ screen: G.screen, mode: G.mode, carId: G.carId, trackIdx: G.trackIdx, laps: G.laps, opp: G.opp, auto: G.auto, touchSteer: G.touchSteer, tiltInv: G.tiltInv, assist: G.assist, gyroLook: G.gyroLook, weather: G.weather }));
+    localStorage.setItem("promaracer.settings", JSON.stringify({ screen: G.screen, mode: G.mode, carId: G.carId, trackIdx: G.trackIdx, laps: G.laps, opp: G.opp, auto: G.auto, touchSteer: G.touchSteer, tiltInv: G.tiltInv, assist: G.assist, gyroLook: G.gyroLook, weather: G.weather, steerVer: 2 }));
     localStorage.setItem("promaracer.bests", JSON.stringify(G.bests));
   } catch (e) {}
 }
@@ -199,7 +199,9 @@ function frame(now) {
   if (G.state === "menu" || !G.player) return;
   const P = G.player;
   updateControls(dt);
+  if (gyro.enabled && gyro.haveData && !G.gyroRef) { recenter(); G.gyroRef = true; }   // «прямо» = как держишь телефон при старте
   if (input.pendingPause) { input.pendingPause = false; G.paused = !G.paused; }
+  $("pauseMenu").style.display = G.paused && G.state !== "finish" ? "flex" : "none";
   if (input.pendingView) { input.pendingView = false; R.view = R.view === "cockpit" ? "chase" : "cockpit"; }
   if (input.pendingReset) { input.pendingReset = false; if (G.state === "race") recoverVehicle(P); }
   if (input.pendingAuto) { input.pendingAuto = false; P.auto = !P.auto; G.autoMsgT = 1.5; G.flash = P.auto ? "АВТО" : "РУЧНАЯ"; }
@@ -249,11 +251,14 @@ async function begin() {
   G.vr = mode === "vr"; G.touch = mode === "touch";
   input.touchMode = G.touch; input.touchSteer = G.touchSteer; tilt.invert = G.tiltInv;
   await enableGyro();
-  if (G.touch || !G.gyroLook) gyro.enabled = false;     // в режиме касания телефон — руль; обзор гироскопом можно отключить
-  look.yaw = look.pitch = 0;
+  // обзор гироскопом работает в виде из кокпита; только руль-наклоном занимает телефон, тогда обзор отключён
+  if (!G.gyroLook || (G.touch && G.touchSteer === "tilt")) gyro.enabled = false;
+  look.yaw = look.pitch = 0; G.gyroRef = false;
   $("touch").style.display = G.touch ? "block" : "none";
   $("tL").style.display = $("tR").style.display = G.touch && G.touchSteer === "btn" ? "block" : "none";
-  $("tCal").style.display = G.touch && G.touchSteer === "tilt" ? "block" : "none";
+  $("tWheel").style.display = G.touch && G.touchSteer === "wheel" ? "block" : "none";
+  $("tCal").style.display = G.touch && (G.touchSteer === "tilt" || gyro.enabled) ? "block" : "none";
+  wheelUI.v = 0; wheelUI.held = false;
   $("tAssist").style.display = G.touch ? "block" : "none";
   startAudio();
   try { if (navigator.wakeLock) await navigator.wakeLock.request("screen"); } catch (e) {}
@@ -272,6 +277,8 @@ function toMenu() {
   if (typeof UI !== "undefined") UI.afterRace();
 }
 input.onEnter = () => { if (G.state === "finish") toMenu(); };
+$("bResume").onclick = () => { G.paused = false; $("pauseMenu").style.display = "none"; };
+$("bQuit").onclick = () => { G.paused = false; $("pauseMenu").style.display = "none"; if (G.online && typeof NET !== "undefined" && NET.room && NET.room.host) NET.roomSend("end", {}); toMenu(); };
 $("bMenu").onclick = () => { if (G.online && typeof NET !== "undefined" && NET.room && NET.room.host) NET.roomSend("end", {}); toMenu(); };
 $("bAgain").onclick = () => {
   $("results").style.display = "none";

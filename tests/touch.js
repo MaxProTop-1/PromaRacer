@@ -22,5 +22,11 @@ run(`G.touchSteer="tilt";`);
   run(`tilt.ref=0;tilt.ang=0.48;`);
   let now=0;for(let i=0;i<120;i++){now+=16.7;raf(now);}
   console.log("input.steer after 2 s tilt:",run("input.steer").toFixed(2),"state:",run("G.state"),"time:",run("G.t").toFixed(1));
+  // руль на экране: удержание держит угол, отпускание возвращает в центр
+  run(`G.screen="touch";G.touchSteer="wheel";`); await run(`begin()`);
+  run(`wheelUI.v=0.6;wheelUI.held=true;`); for(let i=0;i<60;i++){now+=16.7;raf(now);}
+  const held=run("input.steer");
+  run(`wheelUI.held=false;`); for(let i=0;i<180;i++){now+=16.7;raf(now);}
+  console.log("wheel held:",held.toFixed(2),"after release:",run("input.steer").toFixed(2),"(ожидается 0.60 и ~0.00)");
   run(`toMenu()`); console.log("back to menu: touchMode",run("input.touchMode"),"overlay",els.touch.style.display);
 })();

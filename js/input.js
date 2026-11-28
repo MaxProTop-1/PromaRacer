@@ -39,6 +39,10 @@ addEventListener("keyup", e => onKey(e, false));
 function updateControls(dt) {
   let target = input.steerTarget, rate = 14;
   if (input.touchMode && input.touchSteer === "tilt") { target = tiltSteer(); rate = 12; }
+  else if (input.touchMode && input.touchSteer === "wheel") {
+    if (!wheelUI.held) wheelUI.v += (0 - wheelUI.v) * Math.min(1, dt * 7);          // руль сам возвращается в центр
+    target = wheelUI.v; rate = 18; drawWheelUI();
+  }
   else if (input.kbLeft || input.kbRight) { target = input.kbRight - input.kbLeft; rate = 5; }
   else if (!input.steerSeen) { target = 0; rate = 6; }
   input.steer += (target - input.steer) * Math.min(1, dt * rate);
@@ -111,6 +115,33 @@ function tiltSteer() {
   if (Math.abs(v) < 0.03) v = 0;
   return tilt.invert ? -v : v;
 }
+/* ---------- Руль на экране: тяни обод по кругу, как настоящий; отпустил — вернулся в центр ---------- */
+const wheelUI = { v: 0, held: false, pid: null, a0: 0, v0: 0, max: 135 * Math.PI / 180 };
+function drawWheelUI() {
+  const el = document.getElementById("tWheelSvg"); if (!el) return;
+  el.style.transform = "rotate(" + (wheelUI.v * 135).toFixed(1) + "deg)";
+}
+function setupWheelUI() {
+  const el = document.getElementById("tWheel"); if (!el) return;
+  const ang = e => { const r = el.getBoundingClientRect(); return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)); };
+  el.addEventListener("pointerdown", e => {
+    e.preventDefault(); e.stopPropagation();
+    wheelUI.held = true; wheelUI.pid = e.pointerId; wheelUI.a0 = ang(e); wheelUI.v0 = wheelUI.v;
+    try { el.setPointerCapture(e.pointerId); } catch (x) {}
+  });
+  el.addEventListener("pointermove", e => {
+    if (!wheelUI.held || e.pointerId !== wheelUI.pid) return;
+    let d = ang(e) - wheelUI.a0;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    wheelUI.v = Math.max(-1, Math.min(1, wheelUI.v0 + d / wheelUI.max));
+    input.lastKey = "touch:руль";
+  });
+  const up = e => { if (e.pointerId === wheelUI.pid) wheelUI.held = false; };
+  el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
+  el.addEventListener("contextmenu", e => e.preventDefault());
+}
+setupWheelUI();
 function holdButton(id, on, off) {
   const el = document.getElementById(id); if (!el) return;
   const down = e => { e.preventDefault(); e.stopPropagation(); el.classList.add("down"); on(); };
@@ -130,7 +161,7 @@ function setupTouchUI() {
   holdButton("tView", () => { input.pendingView = true; });
   holdButton("tAuto", () => { input.pendingAuto = true; });
   holdButton("tReset", () => { input.pendingReset = true; });
-  holdButton("tCal", () => { calibrateTilt(); });
+  holdButton("tCal", () => { calibrateTilt(); recenter(); });
   holdButton("tAssist", () => { input.pendingAssist = true; });
 }
 setupTouchUI();
