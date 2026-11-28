@@ -572,6 +572,14 @@ function updateSpray(dt) {
   R.spray.geometry.attributes.position.needsUpdate = true;
 }
 
+/* Призрак: полупрозрачная голубая копия машины игрока, едет по записи лучшего круга. */
+function setGhost(def) {
+  if (R.ghost) R.scene.remove(R.ghost);
+  const m = buildCarMesh(def, 0x3aa0ff);
+  m.traverse(o => { if (o.isMesh && o.material) { o.castShadow = false; const mt = o.material; mt.transparent = true; mt.opacity = 0.38; mt.depthWrite = false; if (mt.emissive) mt.emissive.setHex(0x1a5fa0); if (mt.color && !mt.emissive) mt.color.setHex(0x6ab8ff); } });
+  m.visible = false; R.ghost = m; R.scene.add(m);
+}
+
 function setAICars(list) {
   for (const a of R.ai) R.scene.remove(a);
   R.ai = list.map(c => { const m = buildCarMesh(c.def, c.color || c.def.color); R.scene.add(m); return m; });
@@ -770,6 +778,7 @@ function renderFrame(playerCar, cars, S, dt, vr) {
   }
   if (chase && R.playerExt) for (const w of R.playerExt.userData.wheels) { w.m.rotation.x -= playerCar.vx * dt / playerCar.def.wheelR; if (w.front) (w.p || w.m).rotation.y = -playerCar.delta * 0.8; }
 
+  if (R.ghost) { if (S.ghost) { applyCarTransform(R.ghost, S.ghost, now); R.ghost.visible = true; } else R.ghost.visible = false; }
   // стоп-сигналы и брызги из-под колёс
   { let kk = 0;
     for (const c of cars) {

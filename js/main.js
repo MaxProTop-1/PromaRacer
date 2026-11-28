@@ -56,7 +56,7 @@ function startRace() {
   G.cars = cars; G.player = p; G.t = -6; G.accum = 0; G.paused = false; G.state = "grid"; G.rewarded = false; G.coinsEarned = 0; G.netT = 0;
   p.best = (G.bests[G.carId + "|" + TRACKS[G.trackIdx].id]) || null;
   setAICars(cars.filter(c => c !== p));
-  buildCockpit(D);
+  buildCockpit(D); setGhost(D);
   $("results").style.display = "none";
   R.view = "cockpit";
 }
@@ -140,6 +140,7 @@ function simStep(h) {
     if (c === P && c.s >= 0 && G.t > 0) {                 // отсечки по кругу для дельты к лучшему
       const fr = Math.floor(((c.s % TRACK.L) / TRACK.L) * 100);
       (P.cur || (P.cur = []))[fr] = G.t - c.lapStart;
+      (P.tr || (P.tr = []))[Math.floor((G.t - c.lapStart) / 0.1)] = [c.s, c.d, c.psi];
     }
     // круги
     const li = Math.floor(c.s / TRACK.L);
@@ -148,8 +149,8 @@ function simStep(h) {
         const lt = G.t - c.lapStart;
         if (c === P) {
           if (P.best == null || lt < P.best) { P.best = lt; G.bests[G.carId + "|" + TRACKS[G.trackIdx].id] = lt; saveSettings(); }
-          if (P.best === lt && P.cur) P.bestSplits = P.cur.slice();
-          P.last = lt; P.cur = [];
+          if (P.best === lt && P.cur) { P.bestSplits = P.cur.slice(); P.bestTr = (P.tr || []).slice(); }
+          P.last = lt; P.cur = []; P.tr = [];
         }
         c.lapStart = G.t;
         if (li >= G.laps && c.finishT == null) c.finishT = G.t;
@@ -180,6 +181,14 @@ function raceReward(pos, total) {
   const lapK = Math.max(0.5, Math.min(2.5, G.laps / 3));
   if (total <= 1) return Math.round(150 * lapK);
   return Math.round(((total - pos + 1) / total * 600 + (pos === 1 ? 800 : 0)) * lapK);
+}
+/* Призрак лучшего круга: позиция по записанной траектории на тот же момент круга. */
+function ghostAt(P) {
+  if (!P.bestTr || G.state !== "race" || G.t <= 0 || G.mode === "race" && G.online) return null;
+  const f = (G.t - P.lapStart) / 0.1, i = Math.floor(f), a = P.bestTr[i], b = P.bestTr[i + 1];
+  if (!a || !b) return null;
+  const k = f - i;
+  return { s: a[0] + (b[0] - a[0]) * k, d: a[1] + (b[1] - a[1]) * k, psi: a[2] + (b[2] - a[2]) * k, ax: 0, ay: 0 };
 }
 function showResults() {
   drawResults();
@@ -231,6 +240,7 @@ function frame(now) {
     pos: rank(P), total: G.cars.length, lap: P.prevLap + 1, laps: G.laps,
     lastStr: P.last != null ? fmt(P.last) : "", session: G.t > 0 ? fmt(G.t) : "", curT: G.t > 0 ? G.t - P.lapStart : 0,
     delta: (P.bestSplits && P.cur && P.cur[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] != null && P.bestSplits[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] != null) ? P.cur[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] - P.bestSplits[Math.floor(((P.s % TRACK.L) / TRACK.L) * 100)] : null,
+    ghost: ghostAt(P),
     gasV: input.gasSm || 0, brakeV: input.brakeSm || 0,
     timeStr: G.t > 0 ? fmt(G.t - P.lapStart) : "", bestStr: P.best != null ? fmt(P.best) : "", surface: P.onGrass && P.vx > 3
   };

@@ -37,3 +37,5 @@ console.log(vm.runInContext(`(function(){
   o.push('player best '+(P.best==null?'-':P.best.toFixed(1)));
   return o.join('\\n'); })()`, ctx));
 console.log(finished ? "OK: гонка дошла до финиша без исключений" : "ВНИМАНИЕ: игрок не финишировал за отведённое время");
+// призрак лучшего круга: после первого круга траектория записана
+console.log("ghost trace:", vm.runInContext("G.player.bestTr ? G.player.bestTr.length : 0", ctx), "точек (ожидается > 100)");
